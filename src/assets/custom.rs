@@ -9,6 +9,10 @@ pub struct CustomAssets {
     #[asset(image(sampler(filter = nearest)))]
     pub bevy_logo: Handle<Image>,
 
+    #[asset(path = "forest-tilemap.png")]
+    #[asset(image(sampler(filter = nearest)))]
+    pub forest_tilemap: Handle<Image>,
+
     #[asset(path = "dino-Sheet.png")]
     #[asset(image(sampler(filter = nearest)))]
     pub dino: Handle<Image>,

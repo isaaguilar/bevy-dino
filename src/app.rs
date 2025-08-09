@@ -32,8 +32,8 @@ pub fn start() {
                         title: TITLE.into(),
                         name: Some(TITLE.into()),
                         resolution: WindowResolution::new(
-                            RESOLUTION_WIDTH * 1.3, // Window size doesn't matter here. It can be resized and the aspect ratio is kept with the defined resolution
-                            RESOLUTION_HEIGHT * 1.3,
+                            RESOLUTION_WIDTH, // Window size doesn't matter here. It can be resized and the aspect ratio is kept with the defined resolution
+                            RESOLUTION_HEIGHT,
                         ),
                         fit_canvas_to_parent: true,
                         ..default()
@@ -56,6 +56,8 @@ pub fn start() {
             },
             assets::plugin,
             game::plugin,
+            #[cfg(feature = "dev")]
+            crate::dev_tools::plugin,
         ))
         .run();
 }
