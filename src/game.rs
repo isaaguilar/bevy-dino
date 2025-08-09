@@ -136,6 +136,7 @@ pub fn arrow_move(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut dino: Query<(&mut Transform, &mut Sprite, &mut Dino), With<Sprite>>,
 ) {
+    let mut rng = rand::rng();
     if let Ok((mut transform, mut sprite, mut dino)) = dino.single_mut() {
         dino.timer.tick(time.delta());
 
@@ -189,10 +190,15 @@ pub fn arrow_move(
         if dino.jumping || !dino.grounded {
             if keyboard_input.just_pressed(KeyCode::Space) && !dino.attacking && dino.can_attack {
                 // Run animation 18-24 for attack
-                dino.jump_time = 0.0;
-                // dino.jump_height += 1500.0;
-                dino.jumping = true;
-                dino.attacking = true;
+
+                // Simulate an impact for todo code
+                let roll = rng.random_range(0..1);
+                if roll == 0 {
+                    dino.jump_time = 0.0;
+                    dino.jumping = true;
+                    dino.attacking = true;
+                }
+
                 if let Some(atlas) = sprite.texture_atlas.as_mut() {
                     atlas.index = 18;
                 };
@@ -258,7 +264,6 @@ pub fn arrow_move(
                     }
 
                     let index = atlas.index.clamp(12, 17);
-                    let mut rng = rand::rng();
 
                     // Handle idle animation frames, with a random chance to loop back to start
                     // to make it less repetitive.

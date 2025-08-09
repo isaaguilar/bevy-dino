@@ -1,4 +1,6 @@
+.private
 /target
 Cargo.lock
 /assets
 /asset_source
+/dist

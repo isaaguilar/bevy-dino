@@ -1,5 +1,6 @@
 use bevy::{
-    color::palettes::css::ORANGE, prelude::*, render::camera::ScalingMode, window::WindowResolution,
+    asset::AssetMetaCheck, color::palettes::css::ORANGE, prelude::*, render::camera::ScalingMode,
+    window::WindowResolution,
 };
 use bevy_aspect_ratio_mask::{AspectRatioPlugin, Hud, Resolution};
 
@@ -24,18 +25,26 @@ pub enum AppState {
 
 pub fn start() {
     App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: TITLE.into(),
-                name: Some(TITLE.into()),
-                resolution: WindowResolution::new(
-                    RESOLUTION_WIDTH * 1.3, // Window size doesn't matter here. It can be resized and the aspect ratio is kept with the defined resolution
-                    RESOLUTION_HEIGHT * 1.3,
-                ),
-                ..default()
-            }),
-            ..default()
-        }))
+        .add_plugins(
+            DefaultPlugins
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: TITLE.into(),
+                        name: Some(TITLE.into()),
+                        resolution: WindowResolution::new(
+                            RESOLUTION_WIDTH * 1.3, // Window size doesn't matter here. It can be resized and the aspect ratio is kept with the defined resolution
+                            RESOLUTION_HEIGHT * 1.3,
+                        ),
+                        fit_canvas_to_parent: true,
+                        ..default()
+                    }),
+                    ..default()
+                })
+                .set(AssetPlugin {
+                    meta_check: AssetMetaCheck::Never,
+                    ..default()
+                }),
+        )
         .init_state::<AppState>()
         .add_plugins((
             AspectRatioPlugin {
