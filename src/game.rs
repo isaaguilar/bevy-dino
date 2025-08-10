@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::app::{AppState, HALF_WIDTH_SPRITE, RESOLUTION_HEIGHT, RESOLUTION_WIDTH, RUNNING_SPEED};
 use crate::assets::custom::CustomAssets;
 use crate::camera;
@@ -17,10 +19,13 @@ use bevy_aspect_ratio_mask::Hud;
 use rand::Rng; // Make sure you have bevy_gizmos in your dependencies
 
 pub(super) fn plugin(app: &mut App) {
-    app.add_systems(OnEnter(AppState::Game), (setup, camera::game_camera))
+    app.insert_resource(GeneratedPlatformObstacles::default())
+        .insert_resource(GeneratedNonPlatformObstacles::default())
+        .add_systems(OnEnter(AppState::Game), (setup, camera::game_camera))
         .add_systems(
             Update,
             (
+                spawn_platforms,
                 dino_gravity,
                 arrow_move,
                 camera::camera_tracking_system,
@@ -98,21 +103,6 @@ pub fn setup(mut commands: Commands, assets: Res<CustomAssets>, hud: Res<Hud>) {
             ));
         }
     }
-    commands.spawn((
-        camera::Parallax {
-            x_coeff: 0.6,
-            y_coeff: 0.6,
-            x_offset: 600.,
-            y_offset: 480.,
-            x_tile: 0,
-            y_tile: 0,
-        },
-        Sprite {
-            image: assets.forest_tilemap.clone(),
-            ..default()
-        },
-        Transform::from_xyz(0., 0., -20.),
-    ));
 
     // Add a platform on top of the tree
     commands.spawn((
@@ -130,77 +120,209 @@ pub fn setup(mut commands: Commands, assets: Res<CustomAssets>, hud: Res<Hud>) {
             ),
         },
     ));
-
-    // Spawn a tree in on the right of the screen (offset 20 pixels) at ground level
-    // and make it 380 pixels tall. Wrap an aabb around it for collision detection.
-    commands.spawn((
-        Sprite {
-            color: bevy::color::palettes::css::BROWN.into(),
-            custom_size: Some(Vec2::new(50., 380.)),
-            ..default()
-        },
-        Transform::from_xyz(
-            RESOLUTION_WIDTH / 2. - 20.,
-            -RESOLUTION_HEIGHT / 2. + 190.,
-            -1.,
-        ),
-        Obstacle {
-            aabb: Aabb2d::new(
-                Vec2::new(RESOLUTION_WIDTH / 2. - 20., -RESOLUTION_HEIGHT / 2. + 190.),
-                Vec2::new(25., 190.0),
-            ),
-        },
-    ));
-
-    // Add a platform on top of the tree
-    commands.spawn((
-        Platform,
-        Sprite {
-            color: bevy::color::palettes::css::DARK_GREEN.into(),
-            custom_size: Some(Vec2::new(120., 20.)),
-            ..default()
-        },
-        Transform::from_xyz(
-            RESOLUTION_WIDTH / 2. - 20.,
-            -RESOLUTION_HEIGHT / 2. + 380.,
-            -1.,
-        ),
-        Obstacle {
-            aabb: Aabb2d::new(
-                Vec2::new(RESOLUTION_WIDTH / 2. - 20., -RESOLUTION_HEIGHT / 2. + 380.),
-                Vec2::new(60., 10.0),
-            ),
-        },
-    ));
-
-    // Spawn a tree in on the right of the screen (offset 20 pixels) at ground level
-    // and make it 380 pixels tall. Wrap an aabb around it for collision detection.
-    commands.spawn((
-        Sprite {
-            color: bevy::color::palettes::css::BROWN.into(),
-            custom_size: Some(Vec2::new(50., 380.)),
-            ..default()
-        },
-        Transform::from_xyz(0., RESOLUTION_HEIGHT / 2., -1.),
-        Obstacle {
-            aabb: Aabb2d::new(Vec2::new(0., RESOLUTION_HEIGHT / 2.), Vec2::new(25., 190.0)),
-        },
-    ));
-
-    // Add a platform on top of the tree
-    commands.spawn((
-        Platform,
-        Sprite {
-            color: bevy::color::palettes::css::DARK_GREEN.into(),
-            custom_size: Some(Vec2::new(120., 20.)),
-            ..default()
-        },
-        Transform::from_xyz(0., RESOLUTION_HEIGHT / 2., -1.),
-        Obstacle {
-            aabb: Aabb2d::new(Vec2::new(0., RESOLUTION_HEIGHT / 2.), Vec2::new(60., 10.0)),
-        },
-    ));
 }
+
+fn spawn_platforms(
+    mut commands: Commands,
+    assets: Res<CustomAssets>,
+    player_query: Query<&Transform, With<Player>>,
+    mut platform_obstacle_tiles: ResMut<GeneratedPlatformObstacles>,
+    mut non_platform_obstacle_tiles: ResMut<GeneratedNonPlatformObstacles>,
+) {
+    let Ok(transform) = player_query.single() else {
+        return;
+    };
+    let mut rng = rand::rng();
+
+    let current_x_tile = (transform.translation.x / RESOLUTION_WIDTH).floor() as i32;
+    let current_y_tile = (transform.translation.y / RESOLUTION_HEIGHT).floor() as i32;
+
+    for i in current_x_tile - 2..=current_x_tile + 2 {
+        for j in current_y_tile - 2..=current_y_tile + 2 {
+            // We're within a 600x480 box where we have to spawn obstacles (trees) and
+            // obstacles + platforms (landings) based on a set of rules and randomness.
+
+            // The obstacle-platform (landins) placement rules are:
+            // 1. They should be at least 100 pixels apart from each other in distance.
+            // 2. There should be at least:
+            //      a. one platform max 50 pixels above trees.
+            //      b. one platform max 400 pixels below trees at a max of 300 pixels away from either side of the tree.
+
+            // The obstacle (tree) placement rules are:
+            // 1. There should be a tree within a landing that's:
+            //    a. max 50 pixels above and 150 pixels away from either side of the landing
+            //    b. max 400 pixels below and 300 pixels away from either side of the landing.
+            // 2. Trees should be at least 200 pixels apart from each other.
+
+            if platform_obstacle_tiles.0.get(&(i, j)).is_some() {
+                continue;
+            }
+
+            if non_platform_obstacle_tiles.0.get(&(i, j)).is_some() {
+                continue;
+            }
+
+            let mut platform_obstacles = vec![];
+            let mut non_platform_obstacles = vec![];
+
+            // Let's loop within this tile to place landings and trees
+            // There should be a minimum of 4 elements per tile
+            loop {
+                let total_obstacles = platform_obstacles.len() + non_platform_obstacles.len();
+                if total_obstacles >= 4 {
+                    let roll = rng.random_range(0..2);
+                    if roll == 0 {
+                        break;
+                    }
+                }
+
+                if total_obstacles >= 8 {
+                    // Max 8 elements per tile
+                    break;
+                }
+
+                if total_obstacles == 0 {
+                    let roll = rng.random_range(0..2);
+                    if roll == 0 {
+                        // Start by placing a platform at a random position within the tile
+                        let platform_x = (i as f32 * RESOLUTION_WIDTH)
+                            + rng.random_range(100.0..(RESOLUTION_WIDTH - 100.0));
+                        let platform_y = (j as f32 * RESOLUTION_HEIGHT)
+                            + rng.random_range(
+                                -RESOLUTION_HEIGHT / 2.0 + 20.0..RESOLUTION_HEIGHT / 2.0 - 20.0,
+                            );
+                        let obstacle = Obstacle {
+                            aabb: Aabb2d::new(
+                                Vec2::new(platform_x, platform_y),
+                                Vec2::new(50., 10.0),
+                            ),
+                        };
+                        commands.spawn((
+                            Platform,
+                            Sprite {
+                                color: bevy::color::palettes::css::GREEN.into(),
+                                custom_size: Some(Vec2::new(100., 20.)),
+                                ..default()
+                            },
+                            Transform::from_xyz(platform_x, platform_y, -1.),
+                            obstacle.clone(),
+                        ));
+                        platform_obstacles.push(obstacle)
+                    } else {
+                        // Place a tree at a random position within the tile
+                        let platform_x = (i as f32 * RESOLUTION_WIDTH)
+                            + rng.random_range(50.0..(RESOLUTION_WIDTH - 50.0));
+                        let platform_y = (j as f32 * RESOLUTION_HEIGHT)
+                            + rng.random_range(
+                                -RESOLUTION_HEIGHT / 2.0 + 190.0..RESOLUTION_HEIGHT / 2.0 - 190.0,
+                            );
+                        let obstacle = Obstacle {
+                            aabb: Aabb2d::new(
+                                Vec2::new(platform_x, platform_y),
+                                Vec2::new(25., 190.0),
+                            ),
+                        };
+                        commands.spawn((
+                            obstacle.clone(),
+                            Sprite {
+                                color: bevy::color::palettes::css::BROWN.into(),
+                                custom_size: Some(Vec2::new(50., 380.)),
+                                ..default()
+                            },
+                            Transform::from_xyz(platform_x, platform_y, -5.),
+                        ));
+                        non_platform_obstacles.push(obstacle)
+                    }
+                }
+
+                if platform_obstacles.is_empty() && non_platform_obstacles.is_empty() {
+                    continue;
+                }
+
+                let roll = rng.random_range(0..2);
+                if roll == 0 {
+                    // Add more elements relative to existing ones
+                    // First try adding a platform relative to existing platforms
+                    for existing_platform in &platform_obstacles {
+                        let roll = rng.random_range(0..50);
+                        if roll == 0 {
+                            // Skip adding more platforms sometimes
+                            continue;
+                        }
+                        let platform_x_offset = rng.random_range(-150.0..150.0);
+                        let platform_y_offset = rng.random_range(-400.0..400.0);
+                        let platform_x = existing_platform.aabb.min.x + platform_x_offset;
+                        let platform_y = existing_platform.aabb.min.y + platform_y_offset;
+                        let obstacle = Obstacle {
+                            aabb: Aabb2d::new(
+                                Vec2::new(platform_x, platform_y),
+                                Vec2::new(50., 10.0),
+                            ),
+                        };
+                        commands.spawn((
+                            Platform,
+                            Sprite {
+                                color: bevy::color::palettes::css::GREEN.into(),
+                                custom_size: Some(Vec2::new(100., 20.)),
+                                ..default()
+                            },
+                            Transform::from_xyz(platform_x, platform_y, -1.),
+                            obstacle.clone(),
+                        ));
+                        platform_obstacles.push(obstacle);
+                        break;
+                    }
+
+                    // Next try adding a platform relative to existing non-platform obstacles (trees)
+
+                    continue;
+                } else {
+                    // Add tree relative to existing obstacles
+                    for existing_obstacle in &non_platform_obstacles {
+                        let roll = rng.random_range(0..50);
+                        if roll == 0 {
+                            // Skip adding more platforms sometimes
+                            continue;
+                        }
+                        let obstacle_x_offset = rng.random_range(-300.0..300.0);
+                        let obstacle_y_offset = rng.random_range(-400.0..150.0);
+                        let obstacle_x = existing_obstacle.aabb.min.x + obstacle_x_offset;
+                        let obstacle_y = existing_obstacle.aabb.min.y + obstacle_y_offset;
+                        let obstacle = Obstacle {
+                            aabb: Aabb2d::new(
+                                Vec2::new(obstacle_x, obstacle_y),
+                                Vec2::new(25., 190.0),
+                            ),
+                        };
+                        commands.spawn((
+                            obstacle.clone(),
+                            Sprite {
+                                color: bevy::color::palettes::css::BROWN.into(),
+                                custom_size: Some(Vec2::new(50., 380.)),
+                                ..default()
+                            },
+                            Transform::from_xyz(obstacle_x, obstacle_y, -5.),
+                        ));
+                        non_platform_obstacles.push(obstacle);
+                        break;
+                    }
+                }
+            }
+
+            platform_obstacle_tiles.0.insert((i, j), platform_obstacles);
+
+            non_platform_obstacle_tiles
+                .0
+                .insert((i, j), non_platform_obstacles);
+        }
+    }
+}
+
+#[derive(Resource, Default)]
+pub struct GeneratedPlatformObstacles(pub HashMap<(i32, i32), Vec<Obstacle>>);
+
+#[derive(Resource, Default)]
+pub struct GeneratedNonPlatformObstacles(pub HashMap<(i32, i32), Vec<Obstacle>>);
 
 #[derive(Component)]
 pub struct Player;
@@ -218,7 +340,6 @@ pub struct Dino {
     pub timer: Timer,
     pub idle_frame_forward: bool,
     pub grounded: bool,
-    pub jump_acceleration_timer: Timer,
     pub velocity: Vec2,
     pub jumping: bool,
     pub jump_time: f32,
@@ -235,7 +356,6 @@ impl Default for Dino {
             timer: Timer::from_seconds(0.07, TimerMode::Repeating),
             idle_frame_forward: true,
             grounded: false,
-            jump_acceleration_timer: Timer::from_seconds(0.5, TimerMode::Once),
             velocity: Vec2::ZERO,
             jumping: false,
             attacking: false,
@@ -307,6 +427,7 @@ fn dino_gravity(
                     transform.translation.y = dino_new_y;
                     dino.aabb.min.y = platform.aabb.max.y;
                     dino.aabb.max.y = platform.aabb.max.y + dino_height;
+
                     dino.velocity.y = 0.0;
                     dino.grounded = true;
                     landed = true;
