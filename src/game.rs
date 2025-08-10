@@ -19,20 +19,47 @@ use bevy_aspect_ratio_mask::Hud;
 use rand::Rng; // Make sure you have bevy_gizmos in your dependencies
 
 pub(super) fn plugin(app: &mut App) {
-    app.insert_resource(GeneratedPlatformObstacles::default())
+    app.init_state::<GameState>()
+        .add_event::<SceneChange>()
+        .insert_resource(GeneratedPlatformObstacles::default())
         .insert_resource(GeneratedNonPlatformObstacles::default())
+        .insert_resource(AppleBasket::default())
+        .insert_resource(Health::default())
+        .insert_resource(GameTimer::default())
+        .insert_resource(TargetHeight::default())
+        .insert_resource(GameStatus::default())
         .add_systems(OnEnter(AppState::Game), (setup, camera::game_camera))
+        .add_systems(
+            OnEnter(AppState::GameOver),
+            (game_over_scoreboard, camera::game_camera),
+        )
         .add_systems(
             Update,
             (
+                update_timeboard,
+                apple_collect,
+                update_scoreboard,
+                update_healthboard,
+                update_heightboard,
                 spawn_platforms,
                 dino_gravity,
                 arrow_move,
                 camera::camera_tracking_system,
                 camera::parallax_system,
             )
-                .run_if(in_state(AppState::Game)),
-        );
+                .run_if(in_state(AppState::Game).and(in_state(GameState::Running))),
+        )
+        .add_systems(Update, game_over.run_if(on_event::<SceneChange>))
+        .add_systems(Update, scene_transition)
+        .add_systems(Update, restart.run_if(in_state(AppState::GameOver)));
+}
+
+#[derive(States, Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub enum GameState {
+    #[default]
+    Running,
+    NotRunning,
+    Paused,
 }
 
 pub fn setup(mut commands: Commands, assets: Res<CustomAssets>, hud: Res<Hud>) {
@@ -40,23 +67,34 @@ pub fn setup(mut commands: Commands, assets: Res<CustomAssets>, hud: Res<Hud>) {
 
     commands.entity(hud.0).with_children(|parent| {
         parent
-            .spawn((Node {
-                position_type: PositionType::Absolute,
-                display: Display::Flex,
-                flex_direction: FlexDirection::Column,
-                width: Val::Percent(100.0),
-                top: Val::Px(55.0),
-                align_items: AlignItems::Center,
-                ..default()
-            },))
+            .spawn((
+                StateScoped(AppState::Game),
+                Node {
+                    position_type: PositionType::Absolute,
+                    display: Display::Flex,
+                    flex_direction: FlexDirection::Column,
+                    width: Val::Percent(100.0),
+                    top: Val::Px(55.0),
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+            ))
             .with_children(|p| {
-                p.spawn(Text("Press Left / Right To Move\n\n".into()));
-                p.spawn(Text("Press Space to jump. Press again to whip.\n\n".into()));
-                p.spawn(Text("Resizing window maintains aspect ratio".into()));
+                p.spawn((Heightboard, Text("Press Left / Right To Move\n\n".into())));
+                p.spawn((Timeboard, Text("Press Left / Right To Move\n\n".into())));
+                p.spawn((
+                    Healthboard,
+                    Text("Press Space to jump. Press again to whip.\n\n".into()),
+                ));
+                p.spawn((
+                    Scoreboard,
+                    Text("Resizing window maintains aspect ratio".into()),
+                ));
             });
     });
 
     commands.spawn((
+        StateScoped(AppState::Game),
         Dino::default(),
         Player,
         // Add an aabb around the dino for collision detection.
@@ -87,6 +125,7 @@ pub fn setup(mut commands: Commands, assets: Res<CustomAssets>, hud: Res<Hud>) {
     for i in -2..=2 {
         for j in -2..=2 {
             commands.spawn((
+                StateScoped(AppState::Game),
                 camera::Parallax {
                     x_coeff: 0.6,
                     y_coeff: 0.6,
@@ -106,6 +145,7 @@ pub fn setup(mut commands: Commands, assets: Res<CustomAssets>, hud: Res<Hud>) {
 
     // Add a platform on top of the tree
     commands.spawn((
+        StateScoped(AppState::Game),
         Platform,
         Sprite {
             color: bevy::color::palettes::css::GREEN.into(),
@@ -197,11 +237,14 @@ fn spawn_platforms(
                                 Vec2::new(50., 10.0),
                             ),
                         };
+
                         commands.spawn((
+                            StateScoped(AppState::Game),
                             Platform,
                             Sprite {
-                                color: bevy::color::palettes::css::GREEN.into(),
-                                custom_size: Some(Vec2::new(100., 20.)),
+                                image: assets.leaves.clone(),
+                                // color: bevy::color::palettes::css::GREEN.into(),
+                                // custom_size: Some(Vec2::new(100., 20.)),
                                 ..default()
                             },
                             Transform::from_xyz(platform_x, platform_y, -1.),
@@ -222,16 +265,47 @@ fn spawn_platforms(
                                 Vec2::new(25., 190.0),
                             ),
                         };
-                        commands.spawn((
+
+                        let roll = rng.random_range(0..2);
+                        let tree_sprite = if roll == 0 {
+                            // Randomly add an apple tree
+                            // ()
+                            assets.tree.clone()
+                        } else {
+                            // ()
+                            assets.tree.clone()
+                        };
+
+                        let mut tree = commands.spawn((
+                            StateScoped(AppState::Game),
                             obstacle.clone(),
                             Sprite {
-                                color: bevy::color::palettes::css::BROWN.into(),
+                                image: tree_sprite,
+                                // color: bevy::color::palettes::css::BROWN.into(),
                                 custom_size: Some(Vec2::new(50., 380.)),
                                 ..default()
                             },
                             Transform::from_xyz(platform_x, platform_y, -5.),
                         ));
-                        non_platform_obstacles.push(obstacle)
+                        non_platform_obstacles.push(obstacle);
+
+                        if roll == 0 {
+                            // Randomly add an apple tree
+                            tree.with_child((
+                                Apple {
+                                    aabb: Aabb2d::new(
+                                        Vec2::new(platform_x, platform_y + 380.0 / 2. + 8.0),
+                                        Vec2::new(8.0, 8.0),
+                                    ),
+                                },
+                                Transform::from_xyz(0., 380.0 / 2.0 + 8.0, -5.),
+                                Sprite {
+                                    color: bevy::color::palettes::css::RED.into(),
+                                    custom_size: Some(Vec2::new(16., 16.)),
+                                    ..default()
+                                },
+                            ));
+                        }
                     }
                 }
 
@@ -260,10 +334,12 @@ fn spawn_platforms(
                             ),
                         };
                         commands.spawn((
+                            StateScoped(AppState::Game),
                             Platform,
                             Sprite {
-                                color: bevy::color::palettes::css::GREEN.into(),
-                                custom_size: Some(Vec2::new(100., 20.)),
+                                image: assets.leaves.clone(),
+                                // color: bevy::color::palettes::css::GREEN.into(),
+                                // custom_size: Some(Vec2::new(100., 20.)),
                                 ..default()
                             },
                             Transform::from_xyz(platform_x, platform_y, -1.),
@@ -295,9 +371,11 @@ fn spawn_platforms(
                             ),
                         };
                         commands.spawn((
+                            StateScoped(AppState::Game),
                             obstacle.clone(),
                             Sprite {
-                                color: bevy::color::palettes::css::BROWN.into(),
+                                image: assets.tree.clone(),
+                                // color: bevy::color::palettes::css::BROWN.into(),
                                 custom_size: Some(Vec2::new(50., 380.)),
                                 ..default()
                             },
@@ -318,6 +396,45 @@ fn spawn_platforms(
     }
 }
 
+#[derive(Resource)]
+pub struct GameTimer(pub Timer);
+
+impl Default for GameTimer {
+    fn default() -> Self {
+        Self(Timer::from_seconds(200., TimerMode::Once))
+    }
+}
+
+#[derive(Resource)]
+pub struct TargetHeight(pub f32);
+
+impl Default for TargetHeight {
+    fn default() -> Self {
+        Self(9822.) // Makes 10k when the dino lands on the starting platform
+    }
+}
+
+#[derive(Component)]
+pub struct Scoreboard;
+
+#[derive(Component)]
+pub struct Healthboard;
+
+#[derive(Component)]
+pub struct Timeboard;
+
+#[derive(Component)]
+pub struct Heightboard;
+
+#[derive(Resource)]
+pub struct Health(pub u32);
+
+impl Default for Health {
+    fn default() -> Self {
+        Self(100)
+    }
+}
+
 #[derive(Resource, Default)]
 pub struct GeneratedPlatformObstacles(pub HashMap<(i32, i32), Vec<Obstacle>>);
 
@@ -335,6 +452,14 @@ pub struct Obstacle {
     pub aabb: Aabb2d,
 }
 
+#[derive(Component)]
+pub struct Apple {
+    pub aabb: Aabb2d,
+}
+
+#[derive(Resource, Default)]
+pub struct AppleBasket(u32);
+
 #[derive(Component, Debug, Clone)]
 pub struct Dino {
     pub timer: Timer,
@@ -348,6 +473,7 @@ pub struct Dino {
     pub can_attack: bool,
     pub frame_hold_counter: Vec<(usize, u8, u8)>,
     pub aabb: Aabb2d,
+    pub health: i32,
 }
 
 impl Default for Dino {
@@ -363,7 +489,25 @@ impl Default for Dino {
             frame_hold_counter: vec![(21, 0, 1)],
             can_attack: false,
             jump_time: 0.0,
+            health: 100,
             aabb: Aabb2d::new(Vec2::ZERO, Vec2::new(32., 32.)),
+        }
+    }
+}
+
+#[derive(Component)]
+pub struct Transition {
+    pub timer: Timer,
+    pub last_frame: usize,
+    pub pause_frame: usize,
+}
+
+impl Transition {
+    pub fn new(last_frame: usize, pause_frame: usize) -> Self {
+        Self {
+            timer: Timer::from_seconds(0.1, TimerMode::Repeating),
+            last_frame: last_frame,
+            pause_frame: pause_frame,
         }
     }
 }
@@ -389,11 +533,11 @@ fn dino_gravity(
         dino.aabb.min.y += dy;
         dino.aabb.max.y += dy;
 
-        if transform.translation.y < -500. {
-            dino.velocity = Vec2::ZERO;
-            transform.translation = Vec3::ZERO;
-            dino.aabb = Aabb2d::new(Vec2::ZERO, Vec2::new(32., 32.));
-        }
+        // if transform.translation.y < -5000. {
+        //     dino.velocity = Vec2::ZERO;
+        //     transform.translation = Vec3::ZERO;
+        //     dino.aabb = Aabb2d::new(Vec2::ZERO, Vec2::new(32., 32.));
+        // }
 
         // Check collision with absolute ground
         // if transform.translation.y <= ground_y {
@@ -428,6 +572,11 @@ fn dino_gravity(
                     dino.aabb.min.y = platform.aabb.max.y;
                     dino.aabb.max.y = platform.aabb.max.y + dino_height;
 
+                    if dino.velocity.y < -1500.0 {
+                        let damage = 100 / 5 * ((dino.velocity.y / 500.).abs().floor() as i32 - 2);
+                        dino.health -= damage;
+                    }
+
                     dino.velocity.y = 0.0;
                     dino.grounded = true;
                     landed = true;
@@ -446,7 +595,7 @@ pub fn arrow_move(
     time: Res<Time>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut dino: Query<(&mut Transform, &mut Sprite, &mut Dino), With<Sprite>>,
-    mut obstacles: Query<&Obstacle>,
+    obstacles: Query<&Obstacle>,
 ) {
     let mut rng = rand::rng();
     if let Ok((mut transform, mut sprite, mut dino)) = dino.single_mut() {
@@ -488,9 +637,6 @@ pub fn arrow_move(
         // Dampening factor (0.0 = instant, 1.0 = no change)
         let dampening = 0.95;
         dino.velocity.x = dino.velocity.x * dampening + target_velocity_x * (1.0 - dampening);
-
-        // Save previous position
-        let prev_x = transform.translation.x;
 
         // Apply velocity to position
         let dx = dino.velocity.x * time.delta_secs();
@@ -615,3 +761,218 @@ pub fn arrow_move(
         }
     }
 }
+
+// Collect apples and add to applebasket
+fn apple_collect(
+    mut commands: Commands,
+    mut apple_basket: ResMut<AppleBasket>,
+    apples: Query<(Entity, &Apple)>,
+    dino_query: Query<&Dino>,
+) {
+    let Ok(dino) = dino_query.single() else {
+        return;
+    };
+    for (entity, apple) in apples {
+        if apple.aabb.intersects(&dino.aabb) {
+            apple_basket.0 += 1;
+            // Do an animation
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
+fn update_scoreboard(
+    mut scoreboard: Query<&mut Text, With<Scoreboard>>,
+    apple_basket: Res<AppleBasket>,
+) {
+    let Ok(mut scoreboard_text) = scoreboard.single_mut() else {
+        return;
+    };
+
+    scoreboard_text.0 = apple_basket.0.to_string() + " apples";
+}
+
+fn update_healthboard(
+    mut commands: Commands,
+    mut scoreboard: Query<&mut Text, With<Healthboard>>,
+    dino_query: Query<&Dino>,
+    mut game_status: ResMut<GameStatus>,
+    mut game_state: ResMut<NextState<GameState>>,
+) {
+    let Ok(mut scoreboard_text) = scoreboard.single_mut() else {
+        return;
+    };
+
+    let Ok(dino) = dino_query.single() else {
+        return;
+    };
+
+    scoreboard_text.0 = dino.health.to_string() + " health left";
+
+    if dino.health <= 0 {
+        *game_status = GameStatus::Lose;
+        game_state.set(GameState::NotRunning);
+        commands.send_event(SceneChange);
+    }
+}
+
+fn update_timeboard(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut game_timer: ResMut<GameTimer>,
+    mut timeboard: Query<&mut Text, With<Timeboard>>,
+    mut game_status: ResMut<GameStatus>,
+    mut game_state: ResMut<NextState<GameState>>,
+) {
+    game_timer.0.tick(time.delta());
+    let Ok(mut timeboard_text) = timeboard.single_mut() else {
+        return;
+    };
+    timeboard_text.0 = game_timer.0.remaining_secs().ceil().to_string();
+
+    if game_timer.0.finished() {
+        *game_status = GameStatus::Lose;
+        game_state.set(GameState::NotRunning);
+        commands.send_event(SceneChange);
+    }
+}
+
+fn update_heightboard(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut target_height: ResMut<TargetHeight>,
+    mut dino: Query<&mut Transform, With<Dino>>,
+    mut height_board: Query<&mut Text, With<Heightboard>>,
+    mut game_status: ResMut<GameStatus>,
+    mut game_state: ResMut<NextState<GameState>>,
+) {
+    let Ok(mut heightboard_text) = height_board.single_mut() else {
+        return;
+    };
+
+    let Ok(mut transform) = dino.single_mut() else {
+        return;
+    };
+
+    heightboard_text.0 = (target_height.0 - transform.translation.y)
+        .ceil()
+        .to_string()
+        + " left to go";
+
+    if target_height.0 - transform.translation.y <= 0.0 {
+        *game_status = GameStatus::Win;
+        game_state.set(GameState::NotRunning);
+        commands.send_event(SceneChange);
+    }
+}
+
+fn game_over(mut commands: Commands, assets: Res<CustomAssets>) {
+    commands.spawn((
+        // BackgroundColor(BLACK.into()),
+        Transition::new(13, 6),
+        Node {
+            width: Val::Percent(100.),
+            height: Val::Percent(100.),
+            ..default()
+        },
+        ZIndex(99),
+        ImageNode {
+            image: assets.circle_transition.clone(),
+            texture_atlas: Some(TextureAtlas {
+                layout: assets.circle_transition_layout.clone(),
+                index: 0,
+            }),
+
+            ..default()
+        },
+    ));
+}
+
+fn scene_transition(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut loading_state: ResMut<NextState<AppState>>,
+    mut transition_ui: Query<(Entity, &mut ImageNode, &mut Transition)>,
+) {
+    for (entity, mut sprite, mut transition) in transition_ui.iter_mut() {
+        transition.timer.tick(time.delta());
+
+        if transition.timer.just_finished() {
+            if let Some(atlas) = sprite.texture_atlas.as_mut() {
+                if atlas.index == transition.pause_frame - 1 {
+                    atlas.index += 1;
+                    loading_state.set(AppState::GameOver);
+                } else if atlas.index < transition.last_frame {
+                    atlas.index += 1;
+                } else {
+                    commands.entity(entity).despawn();
+                }
+            }
+        }
+    }
+}
+
+fn restart(
+    mut loading_state: ResMut<NextState<AppState>>,
+    mut game_state: ResMut<NextState<GameState>>,
+    mut generated_platforms: ResMut<GeneratedPlatformObstacles>,
+    mut generated_non_platforms: ResMut<GeneratedNonPlatformObstacles>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    mut game_timer: ResMut<GameTimer>,
+    mut apple_basket: ResMut<AppleBasket>,
+) {
+    if keyboard_input.just_pressed(KeyCode::KeyR) {
+        loading_state.set(AppState::Game);
+        game_state.set(GameState::Running);
+        generated_platforms.0.clear();
+        generated_non_platforms.0.clear();
+        game_timer.0.reset();
+        apple_basket.0 = 0;
+        return;
+    }
+}
+
+fn game_over_scoreboard(
+    mut commands: Commands,
+    hud: Res<Hud>,
+
+    apple_basket: Res<AppleBasket>,
+    mut game_timer: ResMut<GameTimer>,
+) {
+    let apples = apple_basket.0;
+    let time_left = game_timer.0.remaining_secs().ceil();
+
+    commands.entity(hud.0).with_children(|parent| {
+        parent
+            .spawn((
+                StateScoped(AppState::GameOver),
+                Node {
+                    position_type: PositionType::Absolute,
+                    display: Display::Flex,
+                    flex_direction: FlexDirection::Column,
+                    width: Val::Percent(100.0),
+                    top: Val::Px(55.0),
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+            ))
+            .with_children(|p| {
+                p.spawn((Text("Total Apples: ".to_string() + &apples.to_string())));
+                p.spawn((Text(
+                    "Time Remaining: ".to_string() + &time_left.to_string(),
+                ),));
+                p.spawn((Text("Press R to restart ".to_string())));
+            });
+    });
+}
+
+#[derive(Resource, Default)]
+pub enum GameStatus {
+    #[default]
+    InProgress,
+    Lose,
+    Win,
+}
+
+#[derive(Event)]
+pub struct SceneChange;

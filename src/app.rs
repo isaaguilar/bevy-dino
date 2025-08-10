@@ -15,12 +15,14 @@ use crate::{assets, game};
 const TITLE: &str = "The Dino Game";
 
 #[derive(States, Debug, Clone, PartialEq, Eq, Hash, Default)]
+#[states(scoped_entities)]
 pub enum AppState {
     #[default]
     Preload,
     Loading,
     Menu,
     Game,
+    GameOver,
 }
 
 pub fn start() {

@@ -28,7 +28,6 @@ pub fn game_camera(
 
     commands
         .spawn((
-            StateScoped(AppState::Game),
             GameCamera {
                 selected_game_level: GameLevelDimensions {
                     left: -1000000.,   // Camera views -180 pixels left
