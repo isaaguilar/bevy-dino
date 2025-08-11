@@ -1,12 +1,16 @@
-use std::collections::HashMap;
-
-use crate::app::{AppState, HALF_WIDTH_SPRITE, RESOLUTION_HEIGHT, RESOLUTION_WIDTH, RUNNING_SPEED};
+use crate::app::{
+    AppState, DisplayLanguage, HALF_WIDTH_SPRITE, RESOLUTION_HEIGHT, RESOLUTION_WIDTH,
+    RUNNING_SPEED,
+};
 use crate::assets::custom::CustomAssets;
+use crate::assets::lexi::game_over::GameOverLex;
 use crate::camera;
+use crate::util::handles::{BODY_FONT, SPLASH_FONT};
 use bevy::ecs::system::Commands;
 use bevy::input::ButtonInput;
 use bevy::math::Vec3;
 use bevy::math::bounding::{Aabb2d, BoundingVolume, IntersectsVolume};
+use bevy::platform::collections::HashMap;
 use bevy::platform::time;
 use bevy::prelude::*;
 use bevy::render::camera::ScalingMode;
@@ -16,18 +20,31 @@ use bevy::scene::ron::de;
 use bevy::sprite::Sprite;
 use bevy::ui::{AlignItems, Display, FlexDirection, Node, PositionType, Val};
 use bevy_aspect_ratio_mask::Hud;
-use rand::Rng; // Make sure you have bevy_gizmos in your dependencies
+use bevy_http_client::prelude::*;
+use bevy_simple_text_input::{
+    TextInput, TextInputPlugin, TextInputSubmitEvent, TextInputSystem, TextInputTextColor,
+    TextInputTextFont, TextInputValue,
+};
+use rand::Rng;
+use serde::Deserialize;
+
+const LEADERBOARD_URL: &'static str = env!("LEADERBOARD_URL");
 
 pub(super) fn plugin(app: &mut App) {
     app.init_state::<GameState>()
         .add_event::<SceneChange>()
+        .add_event::<RenderHighScores>()
+        .add_plugins((TextInputPlugin, HttpClientPlugin))
         .insert_resource(GeneratedPlatformObstacles::default())
         .insert_resource(GeneratedNonPlatformObstacles::default())
         .insert_resource(AppleBasket::default())
+        .insert_resource(TotalPoints::default())
         .insert_resource(Health::default())
         .insert_resource(GameTimer::default())
         .insert_resource(TargetHeight::default())
         .insert_resource(GameStatus::default())
+        .insert_resource(HighScores::default())
+        .insert_resource(PendingSceneChange::default())
         .add_systems(OnEnter(AppState::Game), (setup, camera::game_camera))
         .add_systems(
             OnEnter(AppState::GameOver),
@@ -51,7 +68,12 @@ pub(super) fn plugin(app: &mut App) {
         )
         .add_systems(Update, game_over.run_if(on_event::<SceneChange>))
         .add_systems(Update, scene_transition)
-        .add_systems(Update, restart.run_if(in_state(AppState::GameOver)));
+        .add_systems(Update, (handle_response, handle_error, button_system))
+        .add_systems(
+            Update,
+            (restart, update_high_scoreboard).run_if(in_state(AppState::HighScores)),
+        )
+        .add_systems(OnEnter(AppState::HighScores), setup_high_score_board);
 }
 
 #[derive(States, Debug, Clone, PartialEq, Eq, Hash, Default)]
@@ -63,8 +85,6 @@ pub enum GameState {
 }
 
 pub fn setup(mut commands: Commands, assets: Res<CustomAssets>, hud: Res<Hud>) {
-    info!("Setting up the game");
-
     commands.entity(hud.0).with_children(|parent| {
         parent
             .spawn((
@@ -80,14 +100,28 @@ pub fn setup(mut commands: Commands, assets: Res<CustomAssets>, hud: Res<Hud>) {
                 },
             ))
             .with_children(|p| {
-                p.spawn((Heightboard, Text("Press Left / Right To Move\n\n".into())));
-                p.spawn((Timeboard, Text("Press Left / Right To Move\n\n".into())));
+                p.spawn((
+                    Heightboard,
+                    TextFont::from_font(BODY_FONT)
+                        .with_font_size(RESOLUTION_HEIGHT * 6. / 8. / 25.),
+                    Text("Press Left / Right To Move\n\n".into()),
+                ));
+                p.spawn((
+                    Timeboard,
+                    TextFont::from_font(BODY_FONT)
+                        .with_font_size(RESOLUTION_HEIGHT * 6. / 8. / 25.),
+                    Text("Press Left / Right To Move\n\n".into()),
+                ));
                 p.spawn((
                     Healthboard,
+                    TextFont::from_font(BODY_FONT)
+                        .with_font_size(RESOLUTION_HEIGHT * 6. / 8. / 25.),
                     Text("Press Space to jump. Press again to whip.\n\n".into()),
                 ));
                 p.spawn((
                     Scoreboard,
+                    TextFont::from_font(BODY_FONT)
+                        .with_font_size(RESOLUTION_HEIGHT * 6. / 8. / 25.),
                     Text("Resizing window maintains aspect ratio".into()),
                 ));
             });
@@ -238,7 +272,9 @@ fn spawn_platforms(
                             ),
                         };
 
-                        commands.spawn((
+                        let roll = rng.random_range(0..16);
+
+                        let mut platform = commands.spawn((
                             StateScoped(AppState::Game),
                             Platform,
                             Sprite {
@@ -250,6 +286,23 @@ fn spawn_platforms(
                             Transform::from_xyz(platform_x, platform_y, -1.),
                             obstacle.clone(),
                         ));
+
+                        if roll == 0 {
+                            platform.with_child((
+                                TimeExtender {
+                                    aabb: Aabb2d::new(
+                                        Vec2::new(platform_x, platform_y + 20.0 / 2. + 8.0),
+                                        Vec2::new(8.0, 8.0),
+                                    ),
+                                },
+                                Transform::from_xyz(0., 20.0 / 2.0 + 8.0, -5.),
+                                Sprite {
+                                    color: bevy::color::palettes::css::YELLOW.into(),
+                                    custom_size: Some(Vec2::new(16., 16.)),
+                                    ..default()
+                                },
+                            ));
+                        }
                         platform_obstacles.push(obstacle)
                     } else {
                         // Place a tree at a random position within the tile
@@ -457,8 +510,16 @@ pub struct Apple {
     pub aabb: Aabb2d,
 }
 
+#[derive(Component)]
+pub struct TimeExtender {
+    pub aabb: Aabb2d,
+}
+
 #[derive(Resource, Default)]
 pub struct AppleBasket(u32);
+
+#[derive(Resource, Default)]
+pub struct TotalPoints(u32);
 
 #[derive(Component, Debug, Clone)]
 pub struct Dino {
@@ -812,7 +873,7 @@ fn update_healthboard(
     if dino.health <= 0 {
         *game_status = GameStatus::Lose;
         game_state.set(GameState::NotRunning);
-        commands.send_event(SceneChange);
+        commands.send_event(SceneChange(AppState::GameOver));
     }
 }
 
@@ -833,7 +894,7 @@ fn update_timeboard(
     if game_timer.0.finished() {
         *game_status = GameStatus::Lose;
         game_state.set(GameState::NotRunning);
-        commands.send_event(SceneChange);
+        commands.send_event(SceneChange(AppState::GameOver));
     }
 }
 
@@ -862,38 +923,51 @@ fn update_heightboard(
     if target_height.0 - transform.translation.y <= 0.0 {
         *game_status = GameStatus::Win;
         game_state.set(GameState::NotRunning);
-        commands.send_event(SceneChange);
+        commands.send_event(SceneChange(AppState::GameOver));
     }
 }
 
-fn game_over(mut commands: Commands, assets: Res<CustomAssets>) {
-    commands.spawn((
-        // BackgroundColor(BLACK.into()),
-        Transition::new(13, 6),
-        Node {
-            width: Val::Percent(100.),
-            height: Val::Percent(100.),
-            ..default()
-        },
-        ZIndex(99),
-        ImageNode {
-            image: assets.circle_transition.clone(),
-            texture_atlas: Some(TextureAtlas {
-                layout: assets.circle_transition_layout.clone(),
-                index: 0,
-            }),
+fn game_over(
+    mut reader: EventReader<SceneChange>,
+    mut commands: Commands,
+    mut pending_scene_change: ResMut<PendingSceneChange>,
+    assets: Res<CustomAssets>,
+) {
+    for event in reader.read() {
+        let data = event.0.clone();
+        pending_scene_change.0 = Some(data);
+        commands.spawn((
+            // BackgroundColor(BLACK.into()),
+            Transition::new(13, 6),
+            Node {
+                width: Val::Percent(100.),
+                height: Val::Percent(100.),
+                ..default()
+            },
+            ZIndex(99),
+            ImageNode {
+                image: assets.circle_transition.clone(),
+                texture_atlas: Some(TextureAtlas {
+                    layout: assets.circle_transition_layout.clone(),
+                    index: 0,
+                }),
 
-            ..default()
-        },
-    ));
+                ..default()
+            },
+        ));
+    }
 }
 
 fn scene_transition(
     mut commands: Commands,
     time: Res<Time>,
+    pending_scene_change: Res<PendingSceneChange>,
     mut loading_state: ResMut<NextState<AppState>>,
     mut transition_ui: Query<(Entity, &mut ImageNode, &mut Transition)>,
 ) {
+    let Some(next_scene) = &pending_scene_change.0 else {
+        return;
+    };
     for (entity, mut sprite, mut transition) in transition_ui.iter_mut() {
         transition.timer.tick(time.delta());
 
@@ -901,7 +975,7 @@ fn scene_transition(
             if let Some(atlas) = sprite.texture_atlas.as_mut() {
                 if atlas.index == transition.pause_frame - 1 {
                     atlas.index += 1;
-                    loading_state.set(AppState::GameOver);
+                    loading_state.set(next_scene.clone());
                 } else if atlas.index < transition.last_frame {
                     atlas.index += 1;
                 } else {
@@ -918,6 +992,7 @@ fn restart(
     mut generated_platforms: ResMut<GeneratedPlatformObstacles>,
     mut generated_non_platforms: ResMut<GeneratedNonPlatformObstacles>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
+    mut total_points: ResMut<TotalPoints>,
     mut game_timer: ResMut<GameTimer>,
     mut apple_basket: ResMut<AppleBasket>,
 ) {
@@ -927,6 +1002,7 @@ fn restart(
         generated_platforms.0.clear();
         generated_non_platforms.0.clear();
         game_timer.0.reset();
+        total_points.0 = 0;
         apple_basket.0 = 0;
         return;
     }
@@ -935,10 +1011,23 @@ fn restart(
 fn game_over_scoreboard(
     mut commands: Commands,
     hud: Res<Hud>,
-
+    game_status: Res<GameStatus>,
     apple_basket: Res<AppleBasket>,
     mut game_timer: ResMut<GameTimer>,
+    language: Res<DisplayLanguage>,
+    mut total_points: ResMut<TotalPoints>,
+    game_over_options: Res<Assets<GameOverLex>>,
 ) {
+    let lex = if game_status.won() {
+        get_lex_by_id(&game_over_options, "win")
+    } else if game_status.lost() {
+        get_lex_by_id(&game_over_options, "lose")
+    } else {
+        return;
+    };
+
+    let display_text = lex.lex.from_language(&language.0);
+
     let apples = apple_basket.0;
     let time_left = game_timer.0.remaining_secs().ceil();
 
@@ -957,16 +1046,290 @@ fn game_over_scoreboard(
                 },
             ))
             .with_children(|p| {
-                p.spawn((Text("Total Apples: ".to_string() + &apples.to_string())));
-                p.spawn((Text(
-                    "Time Remaining: ".to_string() + &time_left.to_string(),
-                ),));
-                p.spawn((Text("Press R to restart ".to_string())));
+                let apple_total = apples * 12;
+                let time_total = time_left as u32 * 2;
+                let cider_total = (apples / 10) * 500;
+                let total = apple_total + time_total + cider_total;
+
+                // Math
+                // Apples = x12
+                // Time = x2
+                // Every 10th apple = Cider
+                // Cider = 500 pts
+
+                if game_status.won() {
+                    p.spawn((
+                        TextFont::from_font(BODY_FONT)
+                            .with_font_size(RESOLUTION_HEIGHT * 6. / 8. / 25.),
+                        Text(format!("Total Apples: {} x 12 = {}", apples, apple_total)),
+                    ));
+                    p.spawn((
+                        TextFont::from_font(BODY_FONT)
+                            .with_font_size(RESOLUTION_HEIGHT * 6. / 8. / 25.),
+                        Text(format!(
+                            "Total Cider: {} x 500 = {}",
+                            apples / 10,
+                            cider_total
+                        )),
+                    ));
+                    p.spawn((
+                        TextFont::from_font(BODY_FONT)
+                            .with_font_size(RESOLUTION_HEIGHT * 6. / 8. / 25.),
+                        Text(format!(
+                            "Time Remaining: {} x 2 = {}",
+                            time_left, time_total
+                        )),
+                    ));
+                    total_points.0 = total;
+                    p.spawn(spacer());
+                    p.spawn((
+                        TextFont::from_font(BODY_FONT)
+                            .with_font_size(RESOLUTION_HEIGHT * 6. / 8. / 25.),
+                        Text(display_text + " " + &total.to_string()),
+                    ));
+                    p.spawn(spacer());
+                    p.spawn((
+                        Node {
+                            width: Val::Px(200.0),
+                            border: UiRect::all(Val::Px(5.0)),
+                            padding: UiRect::all(Val::Px(5.0)),
+                            ..default()
+                        },
+                        BorderColor(bevy::color::palettes::css::BLACK.into()),
+                        BackgroundColor(bevy::color::palettes::css::WHITE.into()),
+                        TextInput,
+                        TextInputTextFont(
+                            TextFont::from_font(BODY_FONT)
+                                .with_font_size(RESOLUTION_HEIGHT * 6. / 8. / 25.),
+                        ),
+                        TextInputTextColor(TextColor(bevy::color::palettes::css::BLACK.into())),
+                    ));
+                    p.spawn(spacer());
+                    p.spawn((button(
+                        get_lex_by_id(&game_over_options, "submit")
+                            .lex
+                            .from_language(&language.0),
+                    ),))
+                        .observe(submit_high_score);
+                } else {
+                    total_points.0 = 0;
+                    p.spawn((
+                        TextFont::from_font(BODY_FONT)
+                            .with_font_size(RESOLUTION_HEIGHT * 6. / 8. / 25.),
+                        Text(display_text),
+                    ));
+                    p.spawn(spacer());
+                    p.spawn((button("Continue".into())))
+                        .observe(submit_high_score);
+                }
             });
     });
 }
 
-#[derive(Resource, Default)]
+fn spacer() -> impl Bundle {
+    (
+        TextFont::from_font(BODY_FONT).with_font_size(RESOLUTION_HEIGHT * 6. / 8. / 25.),
+        Text("\n".into()),
+    )
+}
+
+const NORMAL_BUTTON: Color = Color::srgb(0.15, 0.15, 0.15);
+const HOVERED_BUTTON: Color = Color::srgb(0.25, 0.25, 0.25);
+const PRESSED_BUTTON: Color = Color::srgb(0.35, 0.75, 0.35);
+
+fn button(text: String) -> impl Bundle + use<> {
+    (
+        Node {
+            width: Val::Percent(100.0),
+            height: Val::Percent(100.0),
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::Center,
+            ..default()
+        },
+        children![(
+            Button,
+            Node {
+                width: Val::Px(150.0),
+                height: Val::Px(65.0),
+                border: UiRect::all(Val::Px(5.0)),
+                // horizontally center child text
+                justify_content: JustifyContent::Center,
+                // vertically center child text
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            BorderColor(Color::BLACK),
+            BorderRadius::MAX,
+            BackgroundColor(NORMAL_BUTTON),
+            children![(
+                Text::new(text),
+                TextFont::from_font(BODY_FONT).with_font_size(RESOLUTION_HEIGHT * 6. / 8. / 25.),
+                TextColor(Color::srgb(0.9, 0.9, 0.9)),
+                TextShadow::default(),
+            )]
+        )],
+    )
+}
+
+fn button_system(
+    mut interaction_query: Query<
+        (
+            &Interaction,
+            &mut BackgroundColor,
+            &mut BorderColor,
+            &Children,
+        ),
+        (Changed<Interaction>, With<Button>),
+    >,
+) {
+    for (interaction, mut color, mut border_color, children) in &mut interaction_query {
+        match *interaction {
+            Interaction::Pressed => {
+                *color = PRESSED_BUTTON.into();
+                border_color.0 = bevy::color::palettes::css::RED.into();
+            }
+            Interaction::Hovered => {
+                *color = HOVERED_BUTTON.into();
+                border_color.0 = Color::WHITE;
+            }
+            Interaction::None => {
+                *color = NORMAL_BUTTON.into();
+                border_color.0 = Color::BLACK;
+            }
+        }
+    }
+}
+
+// Mouse click observers
+pub fn submit_high_score(
+    _: Trigger<Pointer<Click>>,
+    mut commands: Commands,
+    mut ev_request: EventWriter<HttpRequest>,
+    text_input_query: Query<&TextInputValue>,
+    mut total_points: ResMut<TotalPoints>,
+) {
+    let name = match text_input_query.single() {
+        Ok(t) => t.0.clone(),
+        Err(_) => String::new(),
+    };
+
+    let score = total_points.0;
+    let client = HttpClient::new();
+    match client
+        .post(LEADERBOARD_URL)
+        .json(&serde_json::json!({"name": name, "score": score}))
+        .try_build()
+    {
+        Ok(request) => {
+            ev_request.write(request);
+        }
+        Err(e) => error!(?e),
+    }
+
+    commands.send_event(SceneChange(AppState::HighScores));
+}
+
+fn handle_response(
+    mut ev_resp: EventReader<HttpResponse>,
+    mut high_score_data: ResMut<HighScores>,
+    mut commands: Commands,
+) {
+    for response in ev_resp.read() {
+        if let Ok(data) = response.json::<LeaderboardOutput>() {
+            let high_scores = data.leaderboard;
+            high_score_data.0 = high_scores;
+        };
+    }
+}
+
+fn setup_high_score_board(mut commands: Commands, hud: Res<Hud>) {
+    commands.entity(hud.0).with_children(|parent| {
+        parent
+            .spawn((
+                StateScoped(AppState::HighScores),
+                Node {
+                    position_type: PositionType::Absolute,
+                    display: Display::Flex,
+                    flex_direction: FlexDirection::Column,
+                    width: Val::Percent(100.0),
+                    top: Val::Px(55.0),
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+            ))
+            .with_children(|p| {
+                p.spawn((
+                    TextFont::from_font(BODY_FONT)
+                        .with_font_size(RESOLUTION_HEIGHT * 6. / 8. / 25.),
+                    Text("   High Scores\n----------------\n".into()),
+                ));
+                p.spawn((
+                    HighScoreboard,
+                    TextFont::from_font(BODY_FONT)
+                        .with_font_size(RESOLUTION_HEIGHT * 6. / 8. / 25.),
+                    Text("".into()),
+                ));
+            });
+    });
+}
+
+fn update_high_scoreboard(
+    mut high_score_data: ResMut<HighScores>,
+    mut high_scoreboard: Query<&mut Text, With<HighScoreboard>>,
+) {
+    let Ok(mut text) = high_scoreboard.single_mut() else {
+        return;
+    };
+
+    let mut leaders = high_score_data.0.clone();
+    leaders.sort_by(|a, b| b.score.cmp(&a.score));
+
+    let display_data = leaders
+        .iter()
+        .enumerate()
+        .filter(|(idx, data)| *idx < 10)
+        .map(|(idx, data)| format!("#{} - {}: {}", idx + 1, data.name, data.score))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+
+    text.0 = display_data;
+}
+
+#[derive(Component)]
+pub struct HighScoreboard;
+
+#[derive(Event)]
+pub struct RenderHighScores;
+
+fn handle_error(mut ev_error: EventReader<HttpResponseError>) {
+    for error in ev_error.read() {
+        println!("Error retrieving IP: {}", error.err);
+    }
+}
+
+fn get_lex_by_id(assets: &Assets<GameOverLex>, id: &str) -> GameOverLex {
+    assets
+        .iter()
+        .find(|(_, data)| data.id == id)
+        .map(|(_, data)| data.clone())
+        .unwrap_or_default()
+}
+
+#[derive(Deserialize, Debug)]
+pub struct LeaderboardOutput {
+    leaderboard: Vec<HighScoreData>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct HighScoreData {
+    name: String,
+    score: u32,
+}
+
+#[derive(Resource, Default, Debug)]
+pub struct HighScores(pub Vec<HighScoreData>);
+
+#[derive(Resource, Default, Eq, PartialEq)]
 pub enum GameStatus {
     #[default]
     InProgress,
@@ -974,5 +1337,18 @@ pub enum GameStatus {
     Win,
 }
 
+impl GameStatus {
+    fn won(&self) -> bool {
+        *self == GameStatus::Win
+    }
+
+    fn lost(&self) -> bool {
+        *self == GameStatus::Lose
+    }
+}
+
 #[derive(Event)]
-pub struct SceneChange;
+pub struct SceneChange(pub AppState);
+
+#[derive(Resource, Default)]
+pub struct PendingSceneChange(pub Option<AppState>);

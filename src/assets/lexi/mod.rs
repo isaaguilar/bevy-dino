@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use crate::app::AppState;
 
 // pub mod game;
+pub mod game_over;
 pub mod menu;
 pub mod splash;
 
@@ -11,6 +12,7 @@ pub(super) fn plugin(app: &mut App) {
     app.add_plugins((
         menu::plugin,
         // game::plugin,
+        game_over::plugin,
         splash::plugin,
     ));
     app.add_systems(Update, preload.run_if(in_state(AppState::Preload)));

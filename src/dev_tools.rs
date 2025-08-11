@@ -26,7 +26,7 @@ fn lose(
 ) {
     *game_status = GameStatus::Lose;
     game_state.set(GameState::NotRunning);
-    commands.send_event(SceneChange);
+    commands.send_event(SceneChange(AppState::GameOver));
 }
 
 fn win(
@@ -36,7 +36,7 @@ fn win(
 ) {
     *game_status = GameStatus::Win;
     game_state.set(GameState::NotRunning);
-    commands.send_event(SceneChange);
+    commands.send_event(SceneChange(AppState::GameOver));
 }
 
 pub fn draw_aabb_gizmos(

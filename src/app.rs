@@ -10,7 +10,7 @@ pub const HALF_WIDTH_SPRITE: f32 = 10.;
 pub const AFTER_LOADING_STATE: AppState = AppState::Game;
 pub const RUNNING_SPEED: f32 = 250.0;
 
-use crate::{assets, game};
+use crate::{assets, game, util};
 
 const TITLE: &str = "The Dino Game";
 
@@ -23,6 +23,7 @@ pub enum AppState {
     Menu,
     Game,
     GameOver,
+    HighScores,
 }
 
 pub fn start() {
@@ -48,6 +49,7 @@ pub fn start() {
                 }),
         )
         .init_state::<AppState>()
+        .insert_resource(DisplayLanguage::new("english"))
         .add_plugins((
             AspectRatioPlugin {
                 resolution: Resolution {
@@ -58,8 +60,18 @@ pub fn start() {
             },
             assets::plugin,
             game::plugin,
+            util::plugin,
             #[cfg(feature = "dev")]
             crate::dev_tools::plugin,
         ))
         .run();
+}
+
+#[derive(Resource, Deref, DerefMut)]
+pub struct DisplayLanguage(pub String);
+
+impl DisplayLanguage {
+    fn new(s: impl Into<String>) -> Self {
+        Self(s.into())
+    }
 }
