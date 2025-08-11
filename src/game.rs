@@ -1,3 +1,5 @@
+use std::thread::current;
+
 use crate::app::{
     AppState, DisplayLanguage, HALF_WIDTH_SPRITE, RESOLUTION_HEIGHT, RESOLUTION_WIDTH,
     RUNNING_SPEED,
@@ -45,7 +47,10 @@ pub(super) fn plugin(app: &mut App) {
         .insert_resource(GameStatus::default())
         .insert_resource(HighScores::default())
         .insert_resource(PendingSceneChange::default())
-        .add_systems(OnEnter(AppState::Game), (setup, camera::game_camera))
+        .add_systems(
+            OnEnter(AppState::Game),
+            (sfx_setup, setup, camera::game_camera),
+        )
         .add_systems(
             OnEnter(AppState::GameOver),
             (game_over_scoreboard, camera::game_camera),
@@ -82,6 +87,25 @@ pub enum GameState {
     Running,
     NotRunning,
     Paused,
+}
+
+#[derive(Component)]
+pub struct GameMusic;
+
+pub fn sfx_setup(
+    mut commands: Commands,
+    assets: Res<CustomAssets>,
+    music: Query<&mut AudioSink, With<GameMusic>>,
+    mut volume: ResMut<GlobalVolume>,
+) {
+    volume.volume = bevy::audio::Volume::Linear(0.50); // Sets global volume to 50%
+    if music.single().is_err() {
+        commands.spawn((
+            GameMusic,
+            PlaybackSettings::LOOP.with_volume(bevy::audio::Volume::Linear(1.2)),
+            AudioPlayer(assets.music.clone()),
+        ));
+    }
 }
 
 pub fn setup(mut commands: Commands, assets: Res<CustomAssets>, hud: Res<Hud>) {
@@ -524,6 +548,7 @@ pub struct TotalPoints(u32);
 #[derive(Component, Debug, Clone)]
 pub struct Dino {
     pub timer: Timer,
+    pub walk_sound_effect_timer: Timer,
     pub idle_frame_forward: bool,
     pub grounded: bool,
     pub velocity: Vec2,
@@ -541,6 +566,7 @@ impl Default for Dino {
     fn default() -> Self {
         Self {
             timer: Timer::from_seconds(0.07, TimerMode::Repeating),
+            walk_sound_effect_timer: Timer::from_seconds(0.15, TimerMode::Repeating),
             idle_frame_forward: true,
             grounded: false,
             velocity: Vec2::ZERO,
@@ -577,6 +603,8 @@ fn dino_gravity(
     mut dino: Query<(&mut Transform, &mut Dino), With<Sprite>>,
     platforms: Query<&Obstacle, With<Platform>>,
     time: Res<Time>,
+    mut commands: Commands,
+    assets: Res<CustomAssets>,
 ) {
     if let Ok((mut transform, mut dino)) = dino.single_mut() {
         let gravity = -1200.0;
@@ -634,6 +662,20 @@ fn dino_gravity(
                     dino.aabb.max.y = platform.aabb.max.y + dino_height;
 
                     if dino.velocity.y < -1500.0 {
+                        let mut rng = rand::rng();
+                        let roll = rng.random_range(1..3);
+                        let sfx = if roll == 1 {
+                            assets.thud1.clone()
+                        } else if roll == 2 {
+                            assets.thud2.clone()
+                        } else {
+                            assets.thud3.clone()
+                        };
+                        commands.spawn((
+                            PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(2.0)),
+                            AudioPlayer(sfx),
+                        ));
+
                         let damage = 100 / 5 * ((dino.velocity.y / 500.).abs().floor() as i32 - 2);
                         dino.health -= damage;
                     }
@@ -657,13 +699,27 @@ pub fn arrow_move(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut dino: Query<(&mut Transform, &mut Sprite, &mut Dino), With<Sprite>>,
     obstacles: Query<&Obstacle>,
+    mut commands: Commands,
+    assets: Res<CustomAssets>,
 ) {
     let mut rng = rand::rng();
     if let Ok((mut transform, mut sprite, mut dino)) = dino.single_mut() {
         dino.timer.tick(time.delta());
+        dino.walk_sound_effect_timer.tick(time.delta());
 
         // Start jump
         if keyboard_input.just_pressed(KeyCode::Space) && dino.grounded {
+            let roll = rng.random_range(1..2);
+            let sfx = if roll == 1 {
+                assets.boingjump1.clone()
+            } else {
+                assets.boingjump2.clone()
+            };
+            commands.spawn((
+                PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(0.5)),
+                AudioPlayer(sfx),
+            ));
+
             dino.jumping = true;
             dino.jump_time = 0.0;
             dino.grounded = false;
@@ -721,10 +777,37 @@ pub fn arrow_move(
             if keyboard_input.just_pressed(KeyCode::Space) && !dino.attacking && dino.can_attack {
                 // Run animation 18-24 for attack
 
+                let roll = rng.random_range(1..4);
+                let sfx = if roll == 1 {
+                    assets.swoosh1.clone()
+                } else if roll == 2 {
+                    assets.swoosh2.clone()
+                } else if roll == 3 {
+                    assets.swoosh3.clone()
+                } else {
+                    assets.swoosh4.clone()
+                };
+
+                commands.spawn((
+                    PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(0.5)),
+                    AudioPlayer(sfx),
+                ));
                 // Simulate an impact for todo code
                 dino.attacking = true;
 
                 if x_collision {
+                    let roll = rng.random_range(1..3);
+                    let sfx = if roll == 1 {
+                        assets.impact1.clone()
+                    } else if roll == 2 {
+                        assets.impact2.clone()
+                    } else {
+                        assets.impact3.clone()
+                    };
+                    commands.spawn((
+                        PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(0.25)),
+                        AudioPlayer(sfx),
+                    ));
                     dino.jump_time = 0.0;
                     dino.jumping = true;
                 }
@@ -774,6 +857,32 @@ pub fn arrow_move(
             KeyCode::KeyA,
         ]) {
             // Walking state
+            if dino.walk_sound_effect_timer.just_finished() {
+                let roll = rng.random_range(1..10);
+                let sfx = if roll == 1 {
+                    assets.walk1.clone()
+                } else if roll == 2 {
+                    assets.walk1.clone()
+                } else if roll == 3 {
+                    assets.walk3.clone()
+                } else if roll == 4 {
+                    assets.walk4.clone()
+                } else if roll == 5 {
+                    assets.walk5.clone()
+                } else if roll == 6 {
+                    assets.walk6.clone()
+                } else if roll == 7 {
+                    assets.walk7.clone()
+                } else if roll == 8 {
+                    assets.walk8.clone()
+                } else if roll == 9 {
+                    assets.walk9.clone()
+                } else {
+                    assets.walk10.clone()
+                };
+
+                commands.spawn((PlaybackSettings::DESPAWN, AudioPlayer(sfx)));
+            }
             if dino.timer.just_finished() {
                 if let Some(atlas) = sprite.texture_atlas.as_mut() {
                     let index = atlas.index.clamp(0, 11);
@@ -829,12 +938,17 @@ fn apple_collect(
     mut apple_basket: ResMut<AppleBasket>,
     apples: Query<(Entity, &Apple)>,
     dino_query: Query<&Dino>,
+    assets: Res<CustomAssets>,
 ) {
     let Ok(dino) = dino_query.single() else {
         return;
     };
     for (entity, apple) in apples {
         if apple.aabb.intersects(&dino.aabb) {
+            commands.spawn((
+                PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(2.5)),
+                AudioPlayer(assets.collect_sfx.clone()),
+            ));
             apple_basket.0 += 1;
             // Do an animation
             commands.entity(entity).despawn();
@@ -964,14 +1078,27 @@ fn scene_transition(
     pending_scene_change: Res<PendingSceneChange>,
     mut loading_state: ResMut<NextState<AppState>>,
     mut transition_ui: Query<(Entity, &mut ImageNode, &mut Transition)>,
+    mut game_music: Query<(Entity, &mut AudioSink), With<GameMusic>>,
 ) {
     let Some(next_scene) = &pending_scene_change.0 else {
         return;
     };
+
+    if *next_scene == AppState::GameOver {
+        if let Ok((_, mut game_music_audio)) = game_music.single_mut() {
+            let current_volume = game_music_audio.volume().to_linear();
+            game_music_audio.set_volume(bevy::audio::Volume::Linear(current_volume - 0.005));
+        }
+    }
+
     for (entity, mut sprite, mut transition) in transition_ui.iter_mut() {
         transition.timer.tick(time.delta());
 
         if transition.timer.just_finished() {
+            if let Ok((_, mut game_music_audio)) = game_music.single_mut() {
+                let current_volume = game_music_audio.volume().to_linear();
+                game_music_audio.set_volume(bevy::audio::Volume::Linear(current_volume / 1.5));
+            }
             if let Some(atlas) = sprite.texture_atlas.as_mut() {
                 if atlas.index == transition.pause_frame - 1 {
                     atlas.index += 1;
@@ -980,6 +1107,9 @@ fn scene_transition(
                     atlas.index += 1;
                 } else {
                     commands.entity(entity).despawn();
+                    if let Ok((music_entity, _)) = game_music.single_mut() {
+                        commands.entity(music_entity).despawn();
+                    }
                 }
             }
         }
