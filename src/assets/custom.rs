@@ -28,6 +28,30 @@ pub struct CustomAssets {
     #[asset(texture_atlas_layout(tile_size_x = 128, tile_size_y = 128, columns = 5, rows = 6))]
     pub dino_layout: Handle<TextureAtlasLayout>,
 
+    #[asset(path = "apple.png")]
+    #[asset(image(sampler(filter = nearest)))]
+    pub apple: Handle<Image>,
+
+    #[asset(path = "appleicon.png")]
+    #[asset(image(sampler(filter = nearest)))]
+    pub appleicon: Handle<Image>,
+
+    #[asset(path = "flag.png")]
+    #[asset(image(sampler(filter = nearest)))]
+    pub flag: Handle<Image>,
+
+    #[asset(path = "clock.png")]
+    #[asset(image(sampler(filter = nearest)))]
+    pub clock: Handle<Image>,
+
+    #[asset(path = "dinoicon.png")]
+    #[asset(image(sampler(filter = nearest)))]
+    pub dinoicon: Handle<Image>,
+
+    #[asset(path = "placeholder.png")]
+    #[asset(image(sampler(filter = nearest)))]
+    pub placeholder: Handle<Image>,
+
     #[asset(path = "circle-transition.png")]
     #[asset(image(sampler(filter = nearest)))]
     pub circle_transition: Handle<Image>,
@@ -37,6 +61,15 @@ pub struct CustomAssets {
 
     #[asset(path = "sfx/tropical.ogg")]
     pub music: Handle<AudioSource>,
+
+    #[asset(path = "sfx/win.ogg")]
+    pub win: Handle<AudioSource>,
+
+    #[asset(path = "sfx/lose.ogg")]
+    pub lose: Handle<AudioSource>,
+
+    #[asset(path = "sfx/menu.ogg")]
+    pub menu_music: Handle<AudioSource>,
 
     #[asset(path = "sfx/collect.ogg")]
     pub collect_sfx: Handle<AudioSource>,

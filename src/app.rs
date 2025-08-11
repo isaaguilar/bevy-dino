@@ -7,10 +7,10 @@ use bevy_aspect_ratio_mask::{AspectRatioPlugin, Hud, Resolution};
 pub const RESOLUTION_WIDTH: f32 = 600.0;
 pub const RESOLUTION_HEIGHT: f32 = 480.0;
 pub const HALF_WIDTH_SPRITE: f32 = 10.;
-pub const AFTER_LOADING_STATE: AppState = AppState::Game;
+pub const AFTER_LOADING_STATE: AppState = AppState::Menu;
 pub const RUNNING_SPEED: f32 = 250.0;
 
-use crate::{assets, game, util};
+use crate::{assets, game, menu, util};
 
 const TITLE: &str = "The Dino Game";
 
@@ -24,6 +24,7 @@ pub enum AppState {
     Game,
     GameOver,
     HighScores,
+    Credits,
 }
 
 pub fn start() {
@@ -49,7 +50,8 @@ pub fn start() {
                 }),
         )
         .init_state::<AppState>()
-        .insert_resource(DisplayLanguage::new("english"))
+        .insert_resource(DisplayLanguage::default())
+        .insert_resource(InteractionRateLimit::default())
         .add_plugins((
             AspectRatioPlugin {
                 resolution: Resolution {
@@ -58,6 +60,7 @@ pub fn start() {
                 },
                 ..default()
             },
+            menu::Menu,
             assets::plugin,
             game::plugin,
             util::plugin,
@@ -71,7 +74,19 @@ pub fn start() {
 pub struct DisplayLanguage(pub String);
 
 impl DisplayLanguage {
-    fn new(s: impl Into<String>) -> Self {
-        Self(s.into())
+    fn default() -> Self {
+        Self("english".into())
+    }
+}
+
+#[derive(Component)]
+pub struct DialogDisplay(pub String);
+
+#[derive(Resource)]
+pub struct InteractionRateLimit(pub Timer);
+
+impl Default for InteractionRateLimit {
+    fn default() -> Self {
+        Self(Timer::from_seconds(0.20, TimerMode::Once))
     }
 }

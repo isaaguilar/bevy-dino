@@ -8,19 +8,20 @@ use crate::assets::custom::CustomAssets;
 use crate::assets::lexi::game_over::GameOverLex;
 use crate::camera;
 use crate::util::handles::{BODY_FONT, SPLASH_FONT};
-use bevy::ecs::system::Commands;
+use bevy::ecs::system::{Commands, command};
 use bevy::input::ButtonInput;
+use bevy::input::common_conditions::input_just_pressed;
 use bevy::math::Vec3;
 use bevy::math::bounding::{Aabb2d, BoundingVolume, IntersectsVolume};
 use bevy::platform::collections::HashMap;
 use bevy::platform::time;
-use bevy::prelude::*;
 use bevy::render::camera::ScalingMode;
 use bevy::render::camera::{OrthographicProjection, Projection};
 use bevy::render::primitives::Aabb as BevyAabb;
 use bevy::scene::ron::de;
 use bevy::sprite::Sprite;
 use bevy::ui::{AlignItems, Display, FlexDirection, Node, PositionType, Val};
+use bevy::{audio, prelude::*};
 use bevy_aspect_ratio_mask::Hud;
 use bevy_http_client::prelude::*;
 use bevy_simple_text_input::{
@@ -36,6 +37,7 @@ pub(super) fn plugin(app: &mut App) {
     app.init_state::<GameState>()
         .add_event::<SceneChange>()
         .add_event::<RenderHighScores>()
+        .add_event::<PostHighScore>()
         .add_plugins((TextInputPlugin, HttpClientPlugin))
         .insert_resource(GeneratedPlatformObstacles::default())
         .insert_resource(GeneratedNonPlatformObstacles::default())
@@ -47,19 +49,16 @@ pub(super) fn plugin(app: &mut App) {
         .insert_resource(GameStatus::default())
         .insert_resource(HighScores::default())
         .insert_resource(PendingSceneChange::default())
-        .add_systems(
-            OnEnter(AppState::Game),
-            (sfx_setup, setup, camera::game_camera),
-        )
-        .add_systems(
-            OnEnter(AppState::GameOver),
-            (game_over_scoreboard, camera::game_camera),
-        )
+        .add_systems(Startup, global_volume_set)
+        .add_systems(OnEnter(AppState::Game), (sfx_setup, setup))
+        .add_systems(OnEnter(AppState::GameOver), (game_over_scoreboard,))
+        .add_systems(Startup, camera::game_camera)
         .add_systems(
             Update,
             (
                 update_timeboard,
                 apple_collect,
+                clock_collect,
                 update_scoreboard,
                 update_healthboard,
                 update_heightboard,
@@ -71,20 +70,34 @@ pub(super) fn plugin(app: &mut App) {
             )
                 .run_if(in_state(AppState::Game).and(in_state(GameState::Running))),
         )
+        .add_systems(Update, post_high_score.run_if(on_event::<PostHighScore>))
         .add_systems(Update, game_over.run_if(on_event::<SceneChange>))
         .add_systems(Update, scene_transition)
+        .add_systems(FixedUpdate, (fade_out_and_despawn, fade_in_music))
         .add_systems(Update, (handle_response, handle_error, button_system))
         .add_systems(
             Update,
-            (restart, update_high_scoreboard).run_if(in_state(AppState::HighScores)),
+            (update_high_scoreboard).run_if(in_state(AppState::HighScores)),
+        )
+        .add_systems(OnEnter(AppState::GameOver), waiting_music)
+        .add_systems(OnEnter(AppState::Menu), waiting_music)
+        .add_systems(OnEnter(AppState::HighScores), (waiting_music))
+        .add_systems(OnEnter(AppState::Credits), (setup_credits))
+        .add_systems(
+            Update,
+            press_space_to_start.run_if(
+                in_state(GameState::NotRunning)
+                    .and(in_state(AppState::Game))
+                    .and(input_just_pressed(KeyCode::Space)),
+            ),
         )
         .add_systems(OnEnter(AppState::HighScores), setup_high_score_board);
 }
 
 #[derive(States, Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub enum GameState {
-    #[default]
     Running,
+    #[default]
     NotRunning,
     Paused,
 }
@@ -92,23 +105,63 @@ pub enum GameState {
 #[derive(Component)]
 pub struct GameMusic;
 
+#[derive(Component)]
+pub struct SpaceToStart;
+
+pub fn press_space_to_start(
+    mut commands: Commands,
+    mut game_state: ResMut<NextState<GameState>>,
+    query: Query<Entity, With<SpaceToStart>>,
+) {
+    for entity in query {
+        commands.entity(entity).despawn()
+    }
+    game_state.set(GameState::Running);
+}
+
+pub fn global_volume_set(mut volume: ResMut<GlobalVolume>) {
+    info!("Set Vol");
+    volume.volume = bevy::audio::Volume::Linear(0.50); // Sets global volume to 50%
+}
+
 pub fn sfx_setup(
     mut commands: Commands,
     assets: Res<CustomAssets>,
     music: Query<&mut AudioSink, With<GameMusic>>,
-    mut volume: ResMut<GlobalVolume>,
+    waiting_music_query: Query<Entity, With<WaitingMusic>>,
 ) {
-    volume.volume = bevy::audio::Volume::Linear(0.50); // Sets global volume to 50%
     if music.single().is_err() {
         commands.spawn((
             GameMusic,
-            PlaybackSettings::LOOP.with_volume(bevy::audio::Volume::Linear(1.2)),
+            FadeInMusic::new(1.2),
+            PlaybackSettings::LOOP.with_volume(bevy::audio::Volume::Linear(0.0)),
             AudioPlayer(assets.music.clone()),
         ));
     }
+
+    if let Ok(entity) = waiting_music_query.single() {
+        commands.entity(entity).despawn();
+    }
 }
 
-pub fn setup(mut commands: Commands, assets: Res<CustomAssets>, hud: Res<Hud>) {
+pub fn setup(
+    mut commands: Commands,
+    assets: Res<CustomAssets>,
+    hud: Res<Hud>,
+    mut game_state: ResMut<NextState<GameState>>,
+    mut generated_platforms: ResMut<GeneratedPlatformObstacles>,
+    mut generated_non_platforms: ResMut<GeneratedNonPlatformObstacles>,
+    mut game_timer: ResMut<GameTimer>,
+    mut total_points: ResMut<TotalPoints>,
+    mut apple_basket: ResMut<AppleBasket>,
+) {
+    game_state.set(GameState::NotRunning);
+    generated_platforms.0.clear();
+    generated_non_platforms.0.clear();
+    game_timer.0.reset();
+    total_points.0 = 0;
+    apple_basket.0 = 0;
+
     commands.entity(hud.0).with_children(|parent| {
         parent
             .spawn((
@@ -125,30 +178,189 @@ pub fn setup(mut commands: Commands, assets: Res<CustomAssets>, hud: Res<Hud>) {
             ))
             .with_children(|p| {
                 p.spawn((
+                    SpaceToStart,
+                    TextFont::from_font(BODY_FONT)
+                        .with_font_size(RESOLUTION_HEIGHT * 6. / 8. / 15.),
+                    Text("Press Spacebar to Start".into()),
+                ));
+            });
+
+        parent.spawn((
+            StateScoped(AppState::Game),
+            Node {
+                position_type: PositionType::Absolute,
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
+                left: Val::Px(8.0),
+                top: Val::Px(15.0),
+                width: Val::Px(18.0),
+                height: Val::Px(18.0),
+                ..default()
+            },
+            ImageNode {
+                image: assets.flag.clone(),
+                ..default()
+            },
+        ));
+
+        parent
+            .spawn((
+                StateScoped(AppState::Game),
+                Node {
+                    position_type: PositionType::Absolute,
+                    display: Display::Flex,
+                    flex_direction: FlexDirection::Column,
+                    left: Val::Px(28.0),
+                    top: Val::Px(15.0),
+
+                    ..default()
+                },
+            ))
+            .with_children(|p| {
+                p.spawn((
                     Heightboard,
                     TextFont::from_font(BODY_FONT)
                         .with_font_size(RESOLUTION_HEIGHT * 6. / 8. / 25.),
-                    Text("Press Left / Right To Move\n\n".into()),
+                    Text("".into()),
                 ));
+            });
+
+        parent.spawn((
+            StateScoped(AppState::Game),
+            Node {
+                position_type: PositionType::Absolute,
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
+                left: Val::Px(250.0),
+                top: Val::Px(15.0),
+                width: Val::Px(18.0),
+                height: Val::Px(18.0),
+                ..default()
+            },
+            ImageNode {
+                image: assets.clock.clone(),
+                ..default()
+            },
+        ));
+
+        parent
+            .spawn((
+                StateScoped(AppState::Game),
+                Node {
+                    position_type: PositionType::Absolute,
+                    display: Display::Flex,
+                    flex_direction: FlexDirection::Column,
+                    width: Val::Percent(100.0),
+                    top: Val::Px(15.0),
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+            ))
+            .with_children(|p| {
                 p.spawn((
                     Timeboard,
                     TextFont::from_font(BODY_FONT)
                         .with_font_size(RESOLUTION_HEIGHT * 6. / 8. / 25.),
-                    Text("Press Left / Right To Move\n\n".into()),
+                    Text("".into()),
                 ));
-                p.spawn((
-                    Healthboard,
-                    TextFont::from_font(BODY_FONT)
-                        .with_font_size(RESOLUTION_HEIGHT * 6. / 8. / 25.),
-                    Text("Press Space to jump. Press again to whip.\n\n".into()),
-                ));
+            });
+
+        parent.spawn((
+            StateScoped(AppState::Game),
+            Node {
+                position_type: PositionType::Absolute,
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
+                left: Val::Px(520.0),
+                top: Val::Px(15.0),
+                width: Val::Px(18.0),
+                height: Val::Px(18.0),
+                ..default()
+            },
+            ImageNode {
+                image: assets.appleicon.clone(),
+                ..default()
+            },
+        ));
+
+        parent
+            .spawn((
+                StateScoped(AppState::Game),
+                Node {
+                    position_type: PositionType::Absolute,
+                    display: Display::Flex,
+                    flex_direction: FlexDirection::Column,
+                    left: Val::Px(550.0),
+                    top: Val::Px(15.0),
+
+                    ..default()
+                },
+            ))
+            .with_children(|p| {
                 p.spawn((
                     Scoreboard,
                     TextFont::from_font(BODY_FONT)
                         .with_font_size(RESOLUTION_HEIGHT * 6. / 8. / 25.),
-                    Text("Resizing window maintains aspect ratio".into()),
+                    Text("".into()),
                 ));
             });
+
+        parent.spawn((
+            StateScoped(AppState::Game),
+            Node {
+                position_type: PositionType::Absolute,
+                display: Display::Flex,
+                flex_direction: FlexDirection::Row,
+                left: Val::Px(250.0),
+                top: Val::Px(450.0),
+                // width: Val::Px(18.),
+                // height: Val::Px(18.),
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            children![
+                (
+                    HealthBar(0),
+                    ImageNode {
+                        image: assets.dinoicon.clone(),
+
+                        ..default()
+                    }
+                ),
+                (
+                    HealthBar(1),
+                    ImageNode {
+                        image: assets.dinoicon.clone(),
+
+                        ..default()
+                    }
+                ),
+                (
+                    HealthBar(2),
+                    ImageNode {
+                        image: assets.dinoicon.clone(),
+
+                        ..default()
+                    }
+                ),
+                (
+                    HealthBar(3),
+                    ImageNode {
+                        image: assets.dinoicon.clone(),
+
+                        ..default()
+                    }
+                ),
+                (
+                    HealthBar(4),
+                    ImageNode {
+                        image: assets.dinoicon.clone(),
+
+                        ..default()
+                    }
+                ),
+            ],
+        ));
     });
 
     commands.spawn((
@@ -219,6 +431,9 @@ pub fn setup(mut commands: Commands, assets: Res<CustomAssets>, hud: Res<Hud>) {
         },
     ));
 }
+
+#[derive(Component)]
+pub struct HealthBar(pub u32);
 
 fn spawn_platforms(
     mut commands: Commands,
@@ -321,8 +536,8 @@ fn spawn_platforms(
                                 },
                                 Transform::from_xyz(0., 20.0 / 2.0 + 8.0, -5.),
                                 Sprite {
-                                    color: bevy::color::palettes::css::YELLOW.into(),
-                                    custom_size: Some(Vec2::new(16., 16.)),
+                                    image: assets.clock.clone(),
+
                                     ..default()
                                 },
                             ));
@@ -377,8 +592,9 @@ fn spawn_platforms(
                                 },
                                 Transform::from_xyz(0., 380.0 / 2.0 + 8.0, -5.),
                                 Sprite {
-                                    color: bevy::color::palettes::css::RED.into(),
-                                    custom_size: Some(Vec2::new(16., 16.)),
+                                    image: assets.apple.clone(),
+                                    // color: bevy::color::palettes::css::RED.into(),
+                                    custom_size: Some(Vec2::new(30., 30.)),
                                     ..default()
                                 },
                             ));
@@ -956,6 +1172,31 @@ fn apple_collect(
     }
 }
 
+// Extend the timer by collecting the clocks
+fn clock_collect(
+    mut commands: Commands,
+    mut game_timer: ResMut<GameTimer>,
+    clocks: Query<(Entity, &TimeExtender)>,
+    dino_query: Query<&Dino>,
+    assets: Res<CustomAssets>,
+) {
+    let Ok(dino) = dino_query.single() else {
+        return;
+    };
+    for (entity, clock) in clocks {
+        if clock.aabb.intersects(&dino.aabb) {
+            commands.spawn((
+                PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(2.5)),
+                AudioPlayer(assets.collect_sfx.clone()),
+            ));
+            let remaining = game_timer.0.remaining().as_secs_f32();
+            game_timer.0 = Timer::from_seconds(remaining + 60., TimerMode::Once);
+            // Do an animation
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
 fn update_scoreboard(
     mut scoreboard: Query<&mut Text, With<Scoreboard>>,
     apple_basket: Res<AppleBasket>,
@@ -964,25 +1205,47 @@ fn update_scoreboard(
         return;
     };
 
-    scoreboard_text.0 = apple_basket.0.to_string() + " apples";
+    scoreboard_text.0 = apple_basket.0.to_string();
 }
 
 fn update_healthboard(
     mut commands: Commands,
-    mut scoreboard: Query<&mut Text, With<Healthboard>>,
+    health_icons: Query<(Entity, &HealthBar)>,
     dino_query: Query<&Dino>,
     mut game_status: ResMut<GameStatus>,
     mut game_state: ResMut<NextState<GameState>>,
 ) {
-    let Ok(mut scoreboard_text) = scoreboard.single_mut() else {
-        return;
-    };
-
     let Ok(dino) = dino_query.single() else {
         return;
     };
 
-    scoreboard_text.0 = dino.health.to_string() + " health left";
+    for (entity, dino_health_icon) in health_icons {
+        if dino.health == 80 {
+            if dino_health_icon.0 >= 4 {
+                commands.entity(entity).despawn();
+            }
+        }
+        if dino.health == 60 {
+            if dino_health_icon.0 >= 3 {
+                commands.entity(entity).despawn();
+            }
+        }
+        if dino.health == 40 {
+            if dino_health_icon.0 >= 2 {
+                commands.entity(entity).despawn();
+            }
+        }
+        if dino.health == 20 {
+            if dino_health_icon.0 >= 1 {
+                commands.entity(entity).despawn();
+            }
+        }
+        if dino.health == 0 {
+            if dino_health_icon.0 >= 0 {
+                commands.entity(entity).despawn();
+            }
+        }
+    }
 
     if dino.health <= 0 {
         *game_status = GameStatus::Lose;
@@ -1031,8 +1294,7 @@ fn update_heightboard(
 
     heightboard_text.0 = (target_height.0 - transform.translation.y)
         .ceil()
-        .to_string()
-        + " left to go";
+        .to_string();
 
     if target_height.0 - transform.translation.y <= 0.0 {
         *game_status = GameStatus::Win;
@@ -1072,22 +1334,68 @@ fn game_over(
     }
 }
 
+#[derive(Component)]
+pub struct FadeOutMusic;
+
+#[derive(Component)]
+pub struct FadeInMusic(pub bevy::audio::Volume);
+
+impl FadeInMusic {
+    pub fn new(vol: f32) -> Self {
+        Self(audio::Volume::Linear(vol))
+    }
+}
+
+fn fade_out_and_despawn(
+    mut commands: Commands,
+    music_query: Query<(Entity, &mut AudioSink), With<FadeOutMusic>>,
+) {
+    for (entity, mut audio_controls) in music_query {
+        let current_volume = audio_controls.volume().to_linear();
+
+        if current_volume < 0.01 {
+            commands.entity(entity).despawn()
+        } else {
+            audio_controls.set_volume(bevy::audio::Volume::Linear(current_volume - 0.005));
+        }
+    }
+}
+
+fn fade_in_music(
+    mut commands: Commands,
+    music_query: Query<(Entity, &mut AudioSink, &FadeInMusic)>,
+) {
+    for (entity, mut audio_controls, fade_in_volume) in music_query {
+        let current_volume = audio_controls.volume().to_linear();
+
+        if current_volume >= fade_in_volume.0.to_linear() {
+            commands.entity(entity).remove::<FadeInMusic>();
+        } else {
+            audio_controls.set_volume(bevy::audio::Volume::Linear(current_volume + 0.001));
+        }
+    }
+}
+
 fn scene_transition(
     mut commands: Commands,
     time: Res<Time>,
     pending_scene_change: Res<PendingSceneChange>,
     mut loading_state: ResMut<NextState<AppState>>,
     mut transition_ui: Query<(Entity, &mut ImageNode, &mut Transition)>,
-    mut game_music: Query<(Entity, &mut AudioSink), With<GameMusic>>,
+    mut game_music: Query<Entity, (With<GameMusic>, Without<FadeOutMusic>)>,
+    menu_music: Query<Entity, (With<WaitingMusic>, Without<FadeOutMusic>)>,
 ) {
     let Some(next_scene) = &pending_scene_change.0 else {
         return;
     };
 
     if *next_scene == AppState::GameOver {
-        if let Ok((_, mut game_music_audio)) = game_music.single_mut() {
-            let current_volume = game_music_audio.volume().to_linear();
-            game_music_audio.set_volume(bevy::audio::Volume::Linear(current_volume - 0.005));
+        if let Ok(entity) = game_music.single_mut() {
+            commands.entity(entity).insert(FadeOutMusic);
+        }
+    } else if *next_scene == AppState::Game {
+        if let Ok(entity) = menu_music.single() {
+            commands.entity(entity).insert(FadeOutMusic);
         }
     }
 
@@ -1095,10 +1403,6 @@ fn scene_transition(
         transition.timer.tick(time.delta());
 
         if transition.timer.just_finished() {
-            if let Ok((_, mut game_music_audio)) = game_music.single_mut() {
-                let current_volume = game_music_audio.volume().to_linear();
-                game_music_audio.set_volume(bevy::audio::Volume::Linear(current_volume / 1.5));
-            }
             if let Some(atlas) = sprite.texture_atlas.as_mut() {
                 if atlas.index == transition.pause_frame - 1 {
                     atlas.index += 1;
@@ -1107,34 +1411,27 @@ fn scene_transition(
                     atlas.index += 1;
                 } else {
                     commands.entity(entity).despawn();
-                    if let Ok((music_entity, _)) = game_music.single_mut() {
-                        commands.entity(music_entity).despawn();
-                    }
                 }
             }
         }
     }
 }
 
-fn restart(
-    mut loading_state: ResMut<NextState<AppState>>,
-    mut game_state: ResMut<NextState<GameState>>,
-    mut generated_platforms: ResMut<GeneratedPlatformObstacles>,
-    mut generated_non_platforms: ResMut<GeneratedNonPlatformObstacles>,
-    keyboard_input: Res<ButtonInput<KeyCode>>,
-    mut total_points: ResMut<TotalPoints>,
-    mut game_timer: ResMut<GameTimer>,
-    mut apple_basket: ResMut<AppleBasket>,
+#[derive(Component)]
+pub struct WaitingMusic;
+
+fn waiting_music(
+    mut commands: Commands,
+    assets: Res<CustomAssets>,
+    music: Query<(), With<WaitingMusic>>,
 ) {
-    if keyboard_input.just_pressed(KeyCode::KeyR) {
-        loading_state.set(AppState::Game);
-        game_state.set(GameState::Running);
-        generated_platforms.0.clear();
-        generated_non_platforms.0.clear();
-        game_timer.0.reset();
-        total_points.0 = 0;
-        apple_basket.0 = 0;
-        return;
+    if music.single().is_err() {
+        commands.spawn((
+            WaitingMusic,
+            FadeInMusic::new(0.25),
+            PlaybackSettings::LOOP.with_volume(bevy::audio::Volume::Linear(0.0)),
+            AudioPlayer(assets.menu_music.clone()),
+        ));
     }
 }
 
@@ -1147,10 +1444,19 @@ fn game_over_scoreboard(
     language: Res<DisplayLanguage>,
     mut total_points: ResMut<TotalPoints>,
     game_over_options: Res<Assets<GameOverLex>>,
+    assets: Res<CustomAssets>,
 ) {
     let lex = if game_status.won() {
+        commands.spawn((
+            PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(0.5)),
+            AudioPlayer(assets.win.clone()),
+        ));
         get_lex_by_id(&game_over_options, "win")
     } else if game_status.lost() {
+        commands.spawn((
+            PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(0.8)),
+            AudioPlayer(assets.lose.clone()),
+        ));
         get_lex_by_id(&game_over_options, "lose")
     } else {
         return;
@@ -1331,13 +1637,24 @@ fn button_system(
 }
 
 // Mouse click observers
-pub fn submit_high_score(
-    _: Trigger<Pointer<Click>>,
+pub fn submit_high_score(_: Trigger<Pointer<Click>>, mut commands: Commands) {
+    commands.send_event(PostHighScore);
+}
+
+pub fn go_to_menu(_: Trigger<Pointer<Click>>, mut commands: Commands) {
+    commands.send_event(SceneChange(AppState::Menu));
+}
+
+#[derive(Event)]
+pub struct PostHighScore;
+
+pub fn post_high_score(
     mut commands: Commands,
     mut ev_request: EventWriter<HttpRequest>,
     text_input_query: Query<&TextInputValue>,
     mut total_points: ResMut<TotalPoints>,
 ) {
+    info!("posting high score");
     let name = match text_input_query.single() {
         Ok(t) => t.0.clone(),
         Err(_) => String::new(),
@@ -1400,6 +1717,82 @@ fn setup_high_score_board(mut commands: Commands, hud: Res<Hud>) {
                     Text("".into()),
                 ));
             });
+
+        parent
+            .spawn((
+                StateScoped(AppState::HighScores),
+                Node {
+                    position_type: PositionType::Absolute,
+                    height: Val::Px(2.0 * 480. - 100.),
+                    width: Val::Px(2.0 * 600. - 200.),
+
+                    ..default()
+                },
+            ))
+            .with_children(|p| {
+                p.spawn(button("Menu".into()));
+            })
+            .observe(go_to_menu);
+    });
+}
+
+fn setup_credits(mut commands: Commands, hud: Res<Hud>) {
+    commands.entity(hud.0).with_children(|parent| {
+        parent
+            .spawn((
+                StateScoped(AppState::Credits),
+                Node {
+                    position_type: PositionType::Absolute,
+                    display: Display::Flex,
+                    flex_direction: FlexDirection::Column,
+                    width: Val::Percent(100.0),
+                    top: Val::Px(55.0),
+                    left: Val::Px(120.0),
+                    align_items: AlignItems::Start,
+                    ..default()
+                },
+            ))
+            .with_children(|p| {
+                p.spawn((
+                    TextFont::from_font(BODY_FONT)
+                        .with_font_size(RESOLUTION_HEIGHT * 6. / 8. / 25.),
+                    Text("   Credits\n----------------\n".into()),
+                ));
+                p.spawn(spacer());
+                p.spawn((
+                    TextFont::from_font(BODY_FONT)
+                        .with_font_size(RESOLUTION_HEIGHT * 6. / 8. / 25.),
+                    Text("Software Development\n--------------------\nIsa Aguilar\n\n".into()),
+                ));
+                p.spawn(spacer());
+                p.spawn((
+                    TextFont::from_font(BODY_FONT)
+                        .with_font_size(RESOLUTION_HEIGHT * 6. / 8. / 25.),
+                    Text("Artwork\n------\nIsa Aguilar\n\n".into()),
+                ));
+                p.spawn(spacer());
+                p.spawn((
+                    TextFont::from_font(BODY_FONT)
+                        .with_font_size(RESOLUTION_HEIGHT * 6. / 8. / 25.),
+                    Text("Music\n-----\nIsa Aguilar\n\n".into()),
+                ));
+            });
+
+        parent
+            .spawn((
+                StateScoped(AppState::Credits),
+                Node {
+                    position_type: PositionType::Absolute,
+                    height: Val::Px(2.0 * 480. - 100.),
+                    width: Val::Px(2.0 * 600. - 200.),
+
+                    ..default()
+                },
+            ))
+            .with_children(|p| {
+                p.spawn(button("Menu".into()));
+            })
+            .observe(go_to_menu);
     });
 }
 
