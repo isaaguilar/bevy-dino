@@ -40,7 +40,7 @@ env:
 
   # The itch.io project to upload to in the format `user-name/project-name`.
   # There will be no upload to itch.io if this is commented out.
-  #upload_to_itch: your-itch-username/{{project-name}}
+  upload_to_itch: isaaguilar/cideraptor
 
   ############
   # ADVANCED #
