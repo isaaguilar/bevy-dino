@@ -1533,11 +1533,17 @@ fn scene_transition(
 
     if *next_scene == AppState::GameOver {
         if let Ok(entity) = game_music.single_mut() {
-            commands.entity(entity).insert(FadeOutMusic);
+            commands
+                .entity(entity)
+                .insert(FadeOutMusic)
+                .remove::<MusicVolume>();
         }
     } else if *next_scene == AppState::Game {
         if let Ok(entity) = menu_music.single() {
-            commands.entity(entity).insert(FadeOutMusic);
+            commands
+                .entity(entity)
+                .insert(FadeOutMusic)
+                .remove::<MusicVolume>();
         }
     }
 
