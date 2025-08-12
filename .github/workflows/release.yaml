@@ -26,6 +26,9 @@ env:
   # The base filename of the binary produced by `cargo build`.
   cargo_build_binary_name: bevy-dino
 
+  
+
+
   # The path to the assets directory.
   assets_path: assets
 
@@ -80,7 +83,9 @@ env:
   use_github_cache: false
 
   # Reduce compile time.
-  RUSTFLAGS: -Dwarnings -Zshare-generics=y -Zthreads=0 -A dead_code -A unused_imports -A unused_variables -A unused_parens
+  RUSTFLAGS: -Dwarnings -Zshare-generics=y -Zthreads=0 -A dead_code -A unused_imports -A unused_variables -A unused_parens --cfg getrandom_backend="wasm_js"
+
+  LEADERBOARD_URL: ${{ secrets.LEADERBOARD_URL }}
 
 jobs:
   # Forward some environment variables as outputs of this job.
