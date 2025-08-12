@@ -6,12 +6,13 @@ use crate::game::GameStatus;
 use crate::game::Obstacle;
 use crate::game::SceneChange;
 use crate::game::TimeExtender;
-use bevy::dev_tools::states::log_transitions;
+// use bevy::dev_tools::states::log_transitions;
 use bevy::input::common_conditions::input_just_pressed;
 use bevy::prelude::*;
 
 pub(super) fn plugin(app: &mut App) {
-    app.add_systems(Update, log_transitions::<AppState>)
+    app
+        // .add_systems(Update, log_transitions::<AppState>)
         .add_systems(Update, restart)
         .add_systems(Update, lose.run_if(input_just_pressed(KeyCode::KeyX)))
         .add_systems(Update, win.run_if(input_just_pressed(KeyCode::KeyZ)))
