@@ -1,7 +1,5 @@
-use crate::app::{AppState, RESOLUTION_HEIGHT, RESOLUTION_WIDTH};
+use crate::app::{RESOLUTION_HEIGHT, RESOLUTION_WIDTH};
 use crate::game::Player;
-use bevy::core_pipeline::bloom::{Bloom, BloomPrefilter};
-use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
 use bevy::prelude::*;
 use bevy::render::camera::ScalingMode;
 

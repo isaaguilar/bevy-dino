@@ -44,7 +44,6 @@ fn win(
 
 fn restart(
     mut loading_state: ResMut<NextState<AppState>>,
-    mut game_state: ResMut<NextState<GameState>>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
 ) {
     if keyboard_input.just_pressed(KeyCode::F1) {

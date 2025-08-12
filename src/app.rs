@@ -1,12 +1,8 @@
-use bevy::{
-    asset::AssetMetaCheck, color::palettes::css::ORANGE, prelude::*, render::camera::ScalingMode,
-    window::WindowResolution,
-};
-use bevy_aspect_ratio_mask::{AspectRatioPlugin, Hud, Resolution};
+use bevy::{asset::AssetMetaCheck, prelude::*, window::WindowResolution};
+use bevy_aspect_ratio_mask::{AspectRatioPlugin, Resolution};
 
 pub const RESOLUTION_WIDTH: f32 = 600.0;
 pub const RESOLUTION_HEIGHT: f32 = 480.0;
-pub const HALF_WIDTH_SPRITE: f32 = 10.;
 pub const AFTER_LOADING_STATE: AppState = AppState::Menu;
 pub const RUNNING_SPEED: f32 = 250.0;
 

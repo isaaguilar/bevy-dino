@@ -1,5 +1,3 @@
-use std::thread;
-
 use super::ChangeMenu;
 use crate::app::AppState;
 use crate::app::DisplayLanguage;

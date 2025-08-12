@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 pub mod handles;
-use bevy::asset::{load_internal_asset, load_internal_binary_asset};
+use bevy::asset::load_internal_binary_asset;
 
 #[allow(unused_imports)]
 pub mod prelude {

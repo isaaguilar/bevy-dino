@@ -3,8 +3,6 @@ use crate::app::DialogDisplay;
 use crate::app::DisplayLanguage;
 use crate::app::RESOLUTION_WIDTH;
 use crate::assets::lexi::menu::{Choice, MenuData};
-use bevy::color::palettes::css::DARK_ORCHID;
-use bevy::color::palettes::css::ORCHID;
 use bevy::prelude::*;
 use bevy_aspect_ratio_mask::Hud;
 

@@ -1,5 +1,5 @@
 use super::{Choice, SelectionMarker};
-use crate::app::{RESOLUTION_HEIGHT, RESOLUTION_WIDTH};
+use crate::app::RESOLUTION_HEIGHT;
 use crate::util::handles::BODY_FONT;
 use bevy::{prelude::*, ui::Val::*};
 

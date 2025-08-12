@@ -113,11 +113,10 @@ fn keyboard_menu_selection_system(
 fn keyboard_selection(
     change_menu: EventWriter<ChangeMenu>,
     current_selection: ResMut<CurrentSelection>,
-    next_app_state: ResMut<NextState<AppState>>,
 
     display_language: ResMut<DisplayLanguage>,
     // assets: Res<CustomAssets>,
-    mut commands: Commands,
+    commands: Commands,
 ) {
     // let svg = &assets.svgfile;
     // info!(?svg);
@@ -175,19 +174,15 @@ pub fn mouse_move(
 }
 
 // Mouse click observers
-pub fn click_start_game(
-    _: Trigger<Pointer<Click>>,
-    mut commands: Commands,
-    next_app_state: ResMut<NextState<AppState>>,
-) {
+pub fn click_start_game(_: Trigger<Pointer<Click>>, commands: Commands) {
     actions::start_game(commands);
 }
 
-pub fn click_show_credits(_: Trigger<Pointer<Click>>, mut commands: Commands) {
+pub fn click_show_credits(_: Trigger<Pointer<Click>>, commands: Commands) {
     actions::show_credits(commands);
 }
 
-pub fn click_show_leaderboard(_: Trigger<Pointer<Click>>, mut commands: Commands) {
+pub fn click_show_leaderboard(_: Trigger<Pointer<Click>>, commands: Commands) {
     actions::show_leaderboard(commands)
 }
 

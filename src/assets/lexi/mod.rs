@@ -6,14 +6,14 @@ use crate::app::AppState;
 // pub mod game;
 pub mod game_over;
 pub mod menu;
-pub mod splash;
+// pub mod splash;
 
 pub(super) fn plugin(app: &mut App) {
     app.add_plugins((
         menu::plugin,
         // game::plugin,
         game_over::plugin,
-        splash::plugin,
+        // splash::plugin,
     ));
     app.add_systems(Update, preload.run_if(in_state(AppState::Preload)));
 }
@@ -50,11 +50,7 @@ impl Lexicon {
     }
 }
 
-fn preload(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    mut app_state: ResMut<NextState<AppState>>,
-) {
+fn preload(mut app_state: ResMut<NextState<AppState>>) {
     info!("Loading levels");
     // let level = crate::level::LevelHandle(asset_server.load("levels.json"));
     // commands.insert_resource(level);

@@ -1,32 +1,22 @@
-use std::thread::current;
-
-use crate::app::{
-    AppState, DisplayLanguage, HALF_WIDTH_SPRITE, RESOLUTION_HEIGHT, RESOLUTION_WIDTH,
-    RUNNING_SPEED,
-};
+use crate::app::{AppState, DisplayLanguage, RESOLUTION_HEIGHT, RESOLUTION_WIDTH, RUNNING_SPEED};
 use crate::assets::custom::CustomAssets;
 use crate::assets::lexi::game_over::GameOverLex;
 use crate::camera;
-use crate::util::handles::{BODY_FONT, SPLASH_FONT};
-use bevy::ecs::system::{Commands, command};
+use crate::util::handles::BODY_FONT;
+use bevy::ecs::system::Commands;
 use bevy::input::ButtonInput;
 use bevy::input::common_conditions::input_just_pressed;
-use bevy::math::Vec3;
-use bevy::math::bounding::{Aabb2d, BoundingVolume, IntersectsVolume};
+
+use bevy::math::bounding::{Aabb2d, IntersectsVolume};
 use bevy::platform::collections::HashMap;
-use bevy::platform::time;
-use bevy::render::camera::ScalingMode;
-use bevy::render::camera::{OrthographicProjection, Projection};
-use bevy::render::primitives::Aabb as BevyAabb;
-use bevy::scene::ron::de;
+
 use bevy::sprite::Sprite;
 use bevy::ui::{AlignItems, Display, FlexDirection, Node, PositionType, Val};
 use bevy::{audio, prelude::*};
 use bevy_aspect_ratio_mask::Hud;
 use bevy_http_client::prelude::*;
 use bevy_simple_text_input::{
-    TextInput, TextInputPlugin, TextInputSubmitEvent, TextInputSystem, TextInputTextColor,
-    TextInputTextFont, TextInputValue,
+    TextInput, TextInputPlugin, TextInputTextColor, TextInputTextFont, TextInputValue,
 };
 use rand::Rng;
 use serde::Deserialize;
@@ -43,7 +33,6 @@ pub(super) fn plugin(app: &mut App) {
         .insert_resource(GeneratedNonPlatformObstacles::default())
         .insert_resource(AppleBasket::default())
         .insert_resource(TotalPoints::default())
-        .insert_resource(Health::default())
         .insert_resource(GameTimer::default())
         .insert_resource(TargetHeight::default())
         .insert_resource(GameStatus::default())
@@ -81,8 +70,8 @@ pub(super) fn plugin(app: &mut App) {
         )
         .add_systems(OnEnter(AppState::GameOver), waiting_music)
         .add_systems(OnEnter(AppState::Menu), waiting_music)
-        .add_systems(OnEnter(AppState::HighScores), (waiting_music))
-        .add_systems(OnEnter(AppState::Credits), (setup_credits))
+        .add_systems(OnEnter(AppState::HighScores), waiting_music)
+        .add_systems(OnEnter(AppState::Credits), setup_credits)
         .add_systems(
             Update,
             press_space_to_start.run_if(
@@ -99,7 +88,6 @@ pub enum GameState {
     Running,
     #[default]
     NotRunning,
-    Paused,
 }
 
 #[derive(Component)]
@@ -719,15 +707,6 @@ pub struct Timeboard;
 #[derive(Component)]
 pub struct Heightboard;
 
-#[derive(Resource)]
-pub struct Health(pub u32);
-
-impl Default for Health {
-    fn default() -> Self {
-        Self(100)
-    }
-}
-
 #[derive(Resource, Default)]
 pub struct GeneratedPlatformObstacles(pub HashMap<(i32, i32), Vec<Obstacle>>);
 
@@ -824,8 +803,6 @@ fn dino_gravity(
 ) {
     if let Ok((mut transform, mut dino)) = dino.single_mut() {
         let gravity = -1200.0;
-        // Absolute ground y position
-        let ground_y = -RESOLUTION_HEIGHT / 2. + 50.;
 
         // Apply gravity if not grounded
         if !dino.grounded {
@@ -1078,7 +1055,7 @@ pub fn arrow_move(
                 let sfx = if roll == 1 {
                     assets.walk1.clone()
                 } else if roll == 2 {
-                    assets.walk1.clone()
+                    assets.walk2.clone()
                 } else if roll == 3 {
                     assets.walk3.clone()
                 } else if roll == 4 {
@@ -1241,7 +1218,7 @@ fn update_healthboard(
             }
         }
         if dino.health == 0 {
-            if dino_health_icon.0 >= 0 {
+            if dino_health_icon.0 == 0 {
                 commands.entity(entity).despawn();
             }
         }
@@ -1277,9 +1254,9 @@ fn update_timeboard(
 
 fn update_heightboard(
     mut commands: Commands,
-    time: Res<Time>,
-    mut target_height: ResMut<TargetHeight>,
-    mut dino: Query<&mut Transform, With<Dino>>,
+
+    target_height: Res<TargetHeight>,
+    dino: Query<&Transform, With<Dino>>,
     mut height_board: Query<&mut Text, With<Heightboard>>,
     mut game_status: ResMut<GameStatus>,
     mut game_state: ResMut<NextState<GameState>>,
@@ -1288,7 +1265,7 @@ fn update_heightboard(
         return;
     };
 
-    let Ok(mut transform) = dino.single_mut() else {
+    let Ok(transform) = dino.single() else {
         return;
     };
 
@@ -1440,7 +1417,7 @@ fn game_over_scoreboard(
     hud: Res<Hud>,
     game_status: Res<GameStatus>,
     apple_basket: Res<AppleBasket>,
-    mut game_timer: ResMut<GameTimer>,
+    game_timer: Res<GameTimer>,
     language: Res<DisplayLanguage>,
     mut total_points: ResMut<TotalPoints>,
     game_over_options: Res<Assets<GameOverLex>>,
@@ -1555,7 +1532,7 @@ fn game_over_scoreboard(
                         Text(display_text),
                     ));
                     p.spawn(spacer());
-                    p.spawn((button("Continue".into())))
+                    p.spawn(button("Continue".into()))
                         .observe(submit_high_score);
                 }
             });
@@ -1618,7 +1595,7 @@ fn button_system(
         (Changed<Interaction>, With<Button>),
     >,
 ) {
-    for (interaction, mut color, mut border_color, children) in &mut interaction_query {
+    for (interaction, mut color, mut border_color, _children) in &mut interaction_query {
         match *interaction {
             Interaction::Pressed => {
                 *color = PRESSED_BUTTON.into();
@@ -1652,7 +1629,7 @@ pub fn post_high_score(
     mut commands: Commands,
     mut ev_request: EventWriter<HttpRequest>,
     text_input_query: Query<&TextInputValue>,
-    mut total_points: ResMut<TotalPoints>,
+    total_points: Res<TotalPoints>,
 ) {
     info!("posting high score");
     let name = match text_input_query.single() {
@@ -1679,7 +1656,6 @@ pub fn post_high_score(
 fn handle_response(
     mut ev_resp: EventReader<HttpResponse>,
     mut high_score_data: ResMut<HighScores>,
-    mut commands: Commands,
 ) {
     for response in ev_resp.read() {
         if let Ok(data) = response.json::<LeaderboardOutput>() {
@@ -1797,7 +1773,7 @@ fn setup_credits(mut commands: Commands, hud: Res<Hud>) {
 }
 
 fn update_high_scoreboard(
-    mut high_score_data: ResMut<HighScores>,
+    high_score_data: Res<HighScores>,
     mut high_scoreboard: Query<&mut Text, With<HighScoreboard>>,
 ) {
     let Ok(mut text) = high_scoreboard.single_mut() else {
@@ -1810,7 +1786,7 @@ fn update_high_scoreboard(
     let display_data = leaders
         .iter()
         .enumerate()
-        .filter(|(idx, data)| *idx < 10)
+        .filter(|(idx, _data)| *idx < 10)
         .map(|(idx, data)| format!("#{} - {}: {}", idx + 1, data.name, data.score))
         .collect::<Vec<_>>()
         .join("\n\n");

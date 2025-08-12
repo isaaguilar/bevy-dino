@@ -7,7 +7,7 @@ use bevy_asset_loader::prelude::*;
 pub struct CustomAssets {
     #[asset(path = "bevylogo.png")]
     #[asset(image(sampler(filter = nearest)))]
-    pub bevy_logo: Handle<Image>,
+    pub _bevy_logo: Handle<Image>,
 
     #[asset(path = "forest-tilemap.png")]
     #[asset(image(sampler(filter = nearest)))]
@@ -47,10 +47,6 @@ pub struct CustomAssets {
     #[asset(path = "dinoicon.png")]
     #[asset(image(sampler(filter = nearest)))]
     pub dinoicon: Handle<Image>,
-
-    #[asset(path = "placeholder.png")]
-    #[asset(image(sampler(filter = nearest)))]
-    pub placeholder: Handle<Image>,
 
     #[asset(path = "circle-transition.png")]
     #[asset(image(sampler(filter = nearest)))]
