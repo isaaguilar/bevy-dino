@@ -48,6 +48,20 @@ pub struct CustomAssets {
     #[asset(image(sampler(filter = nearest)))]
     pub dinoicon: Handle<Image>,
 
+    #[asset(path = "sfx-Sheet.png")]
+    #[asset(image(sampler(filter = nearest)))]
+    pub sfx: Handle<Image>,
+
+    #[asset(texture_atlas_layout(tile_size_x = 18, tile_size_y = 18, columns = 2, rows = 1))]
+    pub sfx_layout: Handle<TextureAtlasLayout>,
+
+    #[asset(path = "volume-Sheet.png")]
+    #[asset(image(sampler(filter = nearest)))]
+    pub volume: Handle<Image>,
+
+    #[asset(texture_atlas_layout(tile_size_x = 18, tile_size_y = 18, columns = 2, rows = 1))]
+    pub volume_layout: Handle<TextureAtlasLayout>,
+
     #[asset(path = "circle-transition.png")]
     #[asset(image(sampler(filter = nearest)))]
     pub circle_transition: Handle<Image>,

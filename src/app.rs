@@ -60,8 +60,8 @@ pub fn start() {
             assets::plugin,
             game::plugin,
             util::plugin,
-            // #[cfg(feature = "dev")]
-            // crate::dev_tools::plugin,
+            #[cfg(feature = "dev")]
+            crate::dev_tools::plugin,
         ))
         .run();
 }

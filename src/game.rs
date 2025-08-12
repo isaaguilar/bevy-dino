@@ -38,6 +38,7 @@ pub(super) fn plugin(app: &mut App) {
         .insert_resource(GameStatus::default())
         .insert_resource(HighScores::default())
         .insert_resource(PendingSceneChange::default())
+        .insert_resource(SfxMusicVolume::default())
         .add_systems(Startup, global_volume_set)
         .add_systems(OnEnter(AppState::Game), (sfx_setup, setup))
         .add_systems(OnEnter(AppState::GameOver), (game_over_scoreboard,))
@@ -69,7 +70,7 @@ pub(super) fn plugin(app: &mut App) {
             (update_high_scoreboard).run_if(in_state(AppState::HighScores)),
         )
         .add_systems(OnEnter(AppState::GameOver), waiting_music)
-        .add_systems(OnEnter(AppState::Menu), waiting_music)
+        .add_systems(OnEnter(AppState::Menu), (waiting_music, volume_toggle_hud))
         .add_systems(OnEnter(AppState::HighScores), waiting_music)
         .add_systems(OnEnter(AppState::Credits), setup_credits)
         .add_systems(
@@ -80,6 +81,7 @@ pub(super) fn plugin(app: &mut App) {
                     .and(input_just_pressed(KeyCode::Space)),
             ),
         )
+        .add_systems(Update, music_toggle)
         .add_systems(OnEnter(AppState::HighScores), setup_high_score_board);
 }
 
@@ -112,6 +114,146 @@ pub fn global_volume_set(mut volume: ResMut<GlobalVolume>) {
     volume.volume = bevy::audio::Volume::Linear(0.50); // Sets global volume to 50%
 }
 
+#[derive(Resource)]
+pub struct SfxMusicVolume {
+    pub music: bool,
+    pub sfx: bool,
+}
+
+impl Default for SfxMusicVolume {
+    fn default() -> Self {
+        Self {
+            music: true,
+            sfx: true,
+        }
+    }
+}
+
+pub fn toggle_music_on_click(
+    _: Trigger<Pointer<Click>>,
+    mut sfx_music_volume: ResMut<SfxMusicVolume>,
+    mut icon: Query<&mut ImageNode, With<VolumeToggleMusicMarker>>,
+) {
+    sfx_music_volume.music = !sfx_music_volume.music;
+
+    if let Ok(mut sprite) = icon.single_mut() {
+        if let Some(atlas) = sprite.texture_atlas.as_mut() {
+            if sfx_music_volume.music {
+                atlas.index = 0;
+            } else {
+                atlas.index = 1;
+            }
+        }
+    }
+}
+
+pub fn toggle_sfx_on_click(
+    _: Trigger<Pointer<Click>>,
+    mut sfx_music_volume: ResMut<SfxMusicVolume>,
+    mut icon: Query<&mut ImageNode, With<VolumeToggleSfxMarker>>,
+) {
+    sfx_music_volume.sfx = !sfx_music_volume.sfx;
+
+    if let Ok(mut sprite) = icon.single_mut() {
+        if let Some(atlas) = sprite.texture_atlas.as_mut() {
+            if sfx_music_volume.sfx {
+                atlas.index = 0;
+            } else {
+                atlas.index = 1;
+            }
+        }
+    }
+}
+
+#[derive(Component)]
+pub struct VolumeToggleMarker;
+
+#[derive(Component)]
+pub struct VolumeToggleMusicMarker;
+
+#[derive(Component)]
+pub struct VolumeToggleSfxMarker;
+
+pub fn volume_toggle_hud(
+    mut commands: Commands,
+    hud: Res<Hud>,
+    assets: Res<CustomAssets>,
+    query: Query<(), With<VolumeToggleMarker>>,
+) {
+    if query.iter().next().is_some() {
+        return;
+    }
+    commands.entity(hud.0).with_children(|parent| {
+        parent
+            .spawn((
+                VolumeToggleMarker,
+                VolumeToggleMusicMarker,
+                Node {
+                    position_type: PositionType::Absolute,
+                    display: Display::Flex,
+                    flex_direction: FlexDirection::Row,
+                    left: Val::Px(15.0),
+                    top: Val::Px(410.0),
+                    width: Val::Px(18.),
+                    height: Val::Px(18.),
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+                ImageNode {
+                    image: assets.volume.clone(),
+                    texture_atlas: Some(TextureAtlas {
+                        layout: assets.volume_layout.clone(),
+                        index: 0,
+                    }),
+                    ..default()
+                },
+            ))
+            .observe(toggle_music_on_click);
+
+        parent
+            .spawn((
+                VolumeToggleMarker,
+                VolumeToggleSfxMarker,
+                Node {
+                    position_type: PositionType::Absolute,
+                    display: Display::Flex,
+                    flex_direction: FlexDirection::Row,
+                    left: Val::Px(15.0),
+                    top: Val::Px(440.0),
+                    width: Val::Px(18.),
+                    height: Val::Px(18.),
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+                ImageNode {
+                    image: assets.sfx.clone(),
+                    texture_atlas: Some(TextureAtlas {
+                        layout: assets.sfx_layout.clone(),
+                        index: 0,
+                    }),
+                    ..default()
+                },
+            ))
+            .observe(toggle_sfx_on_click);
+    });
+}
+
+#[derive(Component)]
+pub struct MusicVolume(pub f32);
+
+pub fn music_toggle(
+    sfx_music_volume: Res<SfxMusicVolume>,
+    music: Query<(&mut AudioSink, &MusicVolume)>,
+) {
+    for (mut audio, music_volume) in music {
+        if !sfx_music_volume.music {
+            audio.set_volume(audio::Volume::Linear(0.0));
+        } else {
+            audio.set_volume(audio::Volume::Linear(music_volume.0));
+        }
+    }
+}
+
 pub fn sfx_setup(
     mut commands: Commands,
     assets: Res<CustomAssets>,
@@ -121,6 +263,7 @@ pub fn sfx_setup(
     if music.single().is_err() {
         commands.spawn((
             GameMusic,
+            MusicVolume(1.2),
             FadeInMusic::new(1.2),
             PlaybackSettings::LOOP.with_volume(bevy::audio::Volume::Linear(0.0)),
             AudioPlayer(assets.music.clone()),
@@ -800,6 +943,7 @@ fn dino_gravity(
     time: Res<Time>,
     mut commands: Commands,
     assets: Res<CustomAssets>,
+    sfx_music_volume: Res<SfxMusicVolume>,
 ) {
     if let Ok((mut transform, mut dino)) = dino.single_mut() {
         let gravity = -1200.0;
@@ -864,8 +1008,11 @@ fn dino_gravity(
                         } else {
                             assets.thud3.clone()
                         };
+
+                        let vol = if sfx_music_volume.sfx { 2.0 } else { 0.0 };
+
                         commands.spawn((
-                            PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(2.0)),
+                            PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(vol)),
                             AudioPlayer(sfx),
                         ));
 
@@ -894,6 +1041,7 @@ pub fn arrow_move(
     obstacles: Query<&Obstacle>,
     mut commands: Commands,
     assets: Res<CustomAssets>,
+    sfx_music_volume: Res<SfxMusicVolume>,
 ) {
     let mut rng = rand::rng();
     if let Ok((mut transform, mut sprite, mut dino)) = dino.single_mut() {
@@ -908,8 +1056,10 @@ pub fn arrow_move(
             } else {
                 assets.boingjump2.clone()
             };
+
+            let vol = if sfx_music_volume.sfx { 0.5 } else { 0.0 };
             commands.spawn((
-                PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(0.5)),
+                PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(vol)),
                 AudioPlayer(sfx),
             ));
 
@@ -981,8 +1131,10 @@ pub fn arrow_move(
                     assets.swoosh4.clone()
                 };
 
+                let vol = if sfx_music_volume.sfx { 0.5 } else { 0.0 };
+
                 commands.spawn((
-                    PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(0.5)),
+                    PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(vol)),
                     AudioPlayer(sfx),
                 ));
                 // Simulate an impact for todo code
@@ -997,8 +1149,10 @@ pub fn arrow_move(
                     } else {
                         assets.impact3.clone()
                     };
+                    let vol = if sfx_music_volume.sfx { 0.25 } else { 0.0 };
+
                     commands.spawn((
-                        PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(0.25)),
+                        PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(vol)),
                         AudioPlayer(sfx),
                     ));
                     dino.jump_time = 0.0;
@@ -1074,7 +1228,12 @@ pub fn arrow_move(
                     assets.walk10.clone()
                 };
 
-                commands.spawn((PlaybackSettings::DESPAWN, AudioPlayer(sfx)));
+                let vol = if sfx_music_volume.sfx { 1.0 } else { 0.0 };
+
+                commands.spawn((
+                    PlaybackSettings::DESPAWN.with_volume(audio::Volume::Linear(vol)),
+                    AudioPlayer(sfx),
+                ));
             }
             if dino.timer.just_finished() {
                 if let Some(atlas) = sprite.texture_atlas.as_mut() {
@@ -1132,14 +1291,17 @@ fn apple_collect(
     apples: Query<(Entity, &Apple)>,
     dino_query: Query<&Dino>,
     assets: Res<CustomAssets>,
+    sfx_music_volume: Res<SfxMusicVolume>,
 ) {
     let Ok(dino) = dino_query.single() else {
         return;
     };
     for (entity, apple) in apples {
         if apple.aabb.intersects(&dino.aabb) {
+            let vol = if sfx_music_volume.sfx { 2.5 } else { 0.0 };
+
             commands.spawn((
-                PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(2.5)),
+                PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(vol)),
                 AudioPlayer(assets.collect_sfx.clone()),
             ));
             apple_basket.0 += 1;
@@ -1156,14 +1318,17 @@ fn clock_collect(
     clocks: Query<(Entity, &TimeExtender)>,
     dino_query: Query<&Dino>,
     assets: Res<CustomAssets>,
+    sfx_music_volume: Res<SfxMusicVolume>,
 ) {
     let Ok(dino) = dino_query.single() else {
         return;
     };
     for (entity, clock) in clocks {
         if clock.aabb.intersects(&dino.aabb) {
+            let vol = if sfx_music_volume.sfx { 2.5 } else { 0.0 };
+
             commands.spawn((
-                PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(2.5)),
+                PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(vol)),
                 AudioPlayer(assets.collect_sfx.clone()),
             ));
             let remaining = game_timer.0.remaining().as_secs_f32();
@@ -1405,6 +1570,7 @@ fn waiting_music(
     if music.single().is_err() {
         commands.spawn((
             WaitingMusic,
+            MusicVolume(0.25),
             FadeInMusic::new(0.25),
             PlaybackSettings::LOOP.with_volume(bevy::audio::Volume::Linear(0.0)),
             AudioPlayer(assets.menu_music.clone()),
@@ -1422,16 +1588,20 @@ fn game_over_scoreboard(
     mut total_points: ResMut<TotalPoints>,
     game_over_options: Res<Assets<GameOverLex>>,
     assets: Res<CustomAssets>,
+    sfx_music_volume: Res<SfxMusicVolume>,
 ) {
     let lex = if game_status.won() {
+        let vol = if sfx_music_volume.sfx { 0.5 } else { 0.0 };
+
         commands.spawn((
-            PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(0.5)),
+            PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(vol)),
             AudioPlayer(assets.win.clone()),
         ));
         get_lex_by_id(&game_over_options, "win")
     } else if game_status.lost() {
+        let vol = if sfx_music_volume.sfx { 0.8 } else { 0.0 };
         commands.spawn((
-            PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(0.8)),
+            PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(vol)),
             AudioPlayer(assets.lose.clone()),
         ));
         get_lex_by_id(&game_over_options, "lose")
