@@ -1,0 +1,9 @@
+{
+    "id": "bevy",
+    "lex": {
+        "translations": {
+            "english": "Made with Bevy",
+            "spanish": "Hecho con Bevy"
+        }
+    }
+}

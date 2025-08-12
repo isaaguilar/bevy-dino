@@ -1,0 +1,9 @@
+{
+    "id": "submit",
+    "lex": {
+        "translations": {
+            "english": "Submit",
+            "spanish": "Enviar"
+        }
+    }
+}

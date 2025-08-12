@@ -3,7 +3,7 @@ Cargo.lock
 .private
 
 /target
-/assets
+
 /asset_source
 /dist
 /.cargo

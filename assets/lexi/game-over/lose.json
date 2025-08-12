@@ -1,0 +1,9 @@
+{
+    "id": "lose",
+    "lex": {
+        "translations": {
+            "english": "Game Over",
+            "spanish": "Fin del juego"
+        }
+    }
+}

@@ -1,0 +1,37 @@
+{
+    "id": "language",
+    "lex": {
+        "translations": {
+            "english": "",
+            "spanish": ""
+        }
+    },
+    "choices": [
+        {
+            "id": "english",
+            "choice": {
+                "lex": {
+                    "translations": {
+                        "english": "English",
+                        "spanish": "English"
+                    }
+                },
+                "action": "english",
+                "next_id": "main menu"
+            }
+        },
+        {
+            "id": "spanish",
+            "choice": {
+                "lex": {
+                    "translations": {
+                        "english": "Español",
+                        "spanish": "Español"
+                    }
+                },
+                "action": "spanish",
+                "next_id": "main menu"
+            }
+        }
+    ]
+}

@@ -1,0 +1,24 @@
+{
+    "id": "howto",
+    "lex": {
+        "translations": {
+            "english": "Objective: Get to the top.\nCollect apples on your way up.\n10 apples make cider.\n\nClimb trees by pressing Spacebar",
+            "spanish": "Tu misión: ¡alcanzar la cima!  \nRecolecta manzanas en el camino.\nCon 10 manzanas, podrás hacer sidra.\n\n¡Presiona la barra espaciadora para trepar los árboles como un experto!"
+        }
+    },
+    "choices": [
+        {
+            "id": "back",
+            "choice": {
+                "lex": {
+                    "translations": {
+                        "english": "Back",
+                        "spanish": "Atrás"
+                    }
+                },
+                "action": null,
+                "next_id": "main menu"
+            }
+        }
+    ]
+}

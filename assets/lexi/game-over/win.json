@@ -1,0 +1,9 @@
+{
+    "id": "win",
+    "lex": {
+        "translations": {
+            "english": "You Scored:",
+            "spanish": "Obtuviste:"
+        }
+    }
+}

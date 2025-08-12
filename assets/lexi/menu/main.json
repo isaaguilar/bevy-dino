@@ -1,0 +1,76 @@
+{
+    "id": "main menu",
+    "lex": {
+        "translations": {
+            "english": "",
+            "spanish": ""
+        }
+    },
+    "choices": [
+        {
+            "id": "play",
+            "choice": {
+                "lex": {
+                    "translations": {
+                        "english": "Start",
+                        "spanish": "Iniciar"
+                    }
+                },
+                "action": "start_game",
+                "next_id": null
+            }
+        },
+        {
+            "id": "leaderboard",
+            "choice": {
+                "lex": {
+                    "translations": {
+                        "english": "Leaderboard",
+                        "spanish": "Líderes"
+                    }
+                },
+                "action": "show_leaderboard",
+                "next_id": null
+            }
+        },
+        {
+            "id": "credits",
+            "choice": {
+                "lex": {
+                    "translations": {
+                        "english": "Credits",
+                        "spanish": "Creditos"
+                    }
+                },
+                "action": "show_credits",
+                "next_id": null
+            }
+        },
+        {
+            "id": "language",
+            "choice": {
+                "lex": {
+                    "translations": {
+                        "english": "Language",
+                        "spanish": "Idioma"
+                    }
+                },
+                "action": null,
+                "next_id": "language"
+            }
+        },
+        {
+            "id": "howto",
+            "choice": {
+                "lex": {
+                    "translations": {
+                        "english": "Instructions",
+                        "spanish": "Instrucciones"
+                    }
+                },
+                "action": null,
+                "next_id": "howto"
+            }
+        }
+    ]
+}
