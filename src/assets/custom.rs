@@ -4,7 +4,7 @@ use bevy_asset_loader::prelude::*;
 
 #[derive(AssetCollection, Resource)]
 
-pub struct CustomAssets {
+pub struct ImageAssets {
     #[asset(path = "bevylogo.png")]
     #[asset(image(sampler(filter = nearest)))]
     pub _bevy_logo: Handle<Image>,
@@ -68,7 +68,11 @@ pub struct CustomAssets {
 
     #[asset(texture_atlas_layout(tile_size_x = 512, tile_size_y = 320, columns = 7, rows = 2))]
     pub circle_transition_layout: Handle<TextureAtlasLayout>,
+}
 
+#[derive(AssetCollection, Resource)]
+
+pub struct SoundAssets {
     #[asset(path = "sfx/tropical.ogg")]
     pub music: Handle<AudioSource>,
 

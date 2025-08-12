@@ -12,6 +12,7 @@ pub(super) fn plugin(app: &mut App) {
     app.add_loading_state(
         LoadingState::new(AppState::Loading)
             .continue_to_state(AFTER_LOADING_STATE)
-            .load_collection::<custom::CustomAssets>(),
+            .load_collection::<custom::ImageAssets>()
+            .load_collection::<custom::SoundAssets>(),
     );
 }

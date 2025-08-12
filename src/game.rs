@@ -1,5 +1,5 @@
 use crate::app::{AppState, DisplayLanguage, RESOLUTION_HEIGHT, RESOLUTION_WIDTH, RUNNING_SPEED};
-use crate::assets::custom::CustomAssets;
+use crate::assets::custom::{ImageAssets, SoundAssets};
 use crate::assets::lexi::game_over::GameOverLex;
 use crate::camera;
 use crate::util::handles::BODY_FONT;
@@ -177,7 +177,7 @@ pub struct VolumeToggleSfxMarker;
 pub fn volume_toggle_hud(
     mut commands: Commands,
     hud: Res<Hud>,
-    assets: Res<CustomAssets>,
+    assets: Res<ImageAssets>,
     query: Query<(), With<VolumeToggleMarker>>,
 ) {
     if query.iter().next().is_some() {
@@ -256,7 +256,7 @@ pub fn music_toggle(
 
 pub fn sfx_setup(
     mut commands: Commands,
-    assets: Res<CustomAssets>,
+    sound_assets: Res<SoundAssets>,
     music: Query<&mut AudioSink, With<GameMusic>>,
     waiting_music_query: Query<Entity, With<WaitingMusic>>,
 ) {
@@ -266,7 +266,7 @@ pub fn sfx_setup(
             MusicVolume(1.2),
             FadeInMusic::new(1.2),
             PlaybackSettings::LOOP.with_volume(bevy::audio::Volume::Linear(0.0)),
-            AudioPlayer(assets.music.clone()),
+            AudioPlayer(sound_assets.music.clone()),
         ));
     }
 
@@ -277,7 +277,7 @@ pub fn sfx_setup(
 
 pub fn setup(
     mut commands: Commands,
-    assets: Res<CustomAssets>,
+    assets: Res<ImageAssets>,
     hud: Res<Hud>,
     mut game_state: ResMut<NextState<GameState>>,
     mut generated_platforms: ResMut<GeneratedPlatformObstacles>,
@@ -568,7 +568,7 @@ pub struct HealthBar(pub u32);
 
 fn spawn_platforms(
     mut commands: Commands,
-    assets: Res<CustomAssets>,
+    assets: Res<ImageAssets>,
     player_query: Query<&Transform, With<Player>>,
     mut platform_obstacle_tiles: ResMut<GeneratedPlatformObstacles>,
     mut non_platform_obstacle_tiles: ResMut<GeneratedNonPlatformObstacles>,
@@ -942,7 +942,7 @@ fn dino_gravity(
     platforms: Query<&Obstacle, With<Platform>>,
     time: Res<Time>,
     mut commands: Commands,
-    assets: Res<CustomAssets>,
+    sound_assets: Res<SoundAssets>,
     sfx_music_volume: Res<SfxMusicVolume>,
 ) {
     if let Ok((mut transform, mut dino)) = dino.single_mut() {
@@ -1002,11 +1002,11 @@ fn dino_gravity(
                         let mut rng = rand::rng();
                         let roll = rng.random_range(1..3);
                         let sfx = if roll == 1 {
-                            assets.thud1.clone()
+                            sound_assets.thud1.clone()
                         } else if roll == 2 {
-                            assets.thud2.clone()
+                            sound_assets.thud2.clone()
                         } else {
-                            assets.thud3.clone()
+                            sound_assets.thud3.clone()
                         };
 
                         let vol = if sfx_music_volume.sfx { 2.0 } else { 0.0 };
@@ -1040,7 +1040,7 @@ pub fn arrow_move(
     mut dino: Query<(&mut Transform, &mut Sprite, &mut Dino), With<Sprite>>,
     obstacles: Query<&Obstacle>,
     mut commands: Commands,
-    assets: Res<CustomAssets>,
+    sound_assets: Res<SoundAssets>,
     sfx_music_volume: Res<SfxMusicVolume>,
 ) {
     let mut rng = rand::rng();
@@ -1052,9 +1052,9 @@ pub fn arrow_move(
         if keyboard_input.just_pressed(KeyCode::Space) && dino.grounded {
             let roll = rng.random_range(1..2);
             let sfx = if roll == 1 {
-                assets.boingjump1.clone()
+                sound_assets.boingjump1.clone()
             } else {
-                assets.boingjump2.clone()
+                sound_assets.boingjump2.clone()
             };
 
             let vol = if sfx_music_volume.sfx { 0.5 } else { 0.0 };
@@ -1122,13 +1122,13 @@ pub fn arrow_move(
 
                 let roll = rng.random_range(1..4);
                 let sfx = if roll == 1 {
-                    assets.swoosh1.clone()
+                    sound_assets.swoosh1.clone()
                 } else if roll == 2 {
-                    assets.swoosh2.clone()
+                    sound_assets.swoosh2.clone()
                 } else if roll == 3 {
-                    assets.swoosh3.clone()
+                    sound_assets.swoosh3.clone()
                 } else {
-                    assets.swoosh4.clone()
+                    sound_assets.swoosh4.clone()
                 };
 
                 let vol = if sfx_music_volume.sfx { 0.5 } else { 0.0 };
@@ -1143,11 +1143,11 @@ pub fn arrow_move(
                 if x_collision {
                     let roll = rng.random_range(1..3);
                     let sfx = if roll == 1 {
-                        assets.impact1.clone()
+                        sound_assets.impact1.clone()
                     } else if roll == 2 {
-                        assets.impact2.clone()
+                        sound_assets.impact2.clone()
                     } else {
-                        assets.impact3.clone()
+                        sound_assets.impact3.clone()
                     };
                     let vol = if sfx_music_volume.sfx { 0.25 } else { 0.0 };
 
@@ -1207,25 +1207,25 @@ pub fn arrow_move(
             if dino.walk_sound_effect_timer.just_finished() {
                 let roll = rng.random_range(1..10);
                 let sfx = if roll == 1 {
-                    assets.walk1.clone()
+                    sound_assets.walk1.clone()
                 } else if roll == 2 {
-                    assets.walk2.clone()
+                    sound_assets.walk2.clone()
                 } else if roll == 3 {
-                    assets.walk3.clone()
+                    sound_assets.walk3.clone()
                 } else if roll == 4 {
-                    assets.walk4.clone()
+                    sound_assets.walk4.clone()
                 } else if roll == 5 {
-                    assets.walk5.clone()
+                    sound_assets.walk5.clone()
                 } else if roll == 6 {
-                    assets.walk6.clone()
+                    sound_assets.walk6.clone()
                 } else if roll == 7 {
-                    assets.walk7.clone()
+                    sound_assets.walk7.clone()
                 } else if roll == 8 {
-                    assets.walk8.clone()
+                    sound_assets.walk8.clone()
                 } else if roll == 9 {
-                    assets.walk9.clone()
+                    sound_assets.walk9.clone()
                 } else {
-                    assets.walk10.clone()
+                    sound_assets.walk10.clone()
                 };
 
                 let vol = if sfx_music_volume.sfx { 1.0 } else { 0.0 };
@@ -1290,7 +1290,7 @@ fn apple_collect(
     mut apple_basket: ResMut<AppleBasket>,
     apples: Query<(Entity, &Apple)>,
     dino_query: Query<&Dino>,
-    assets: Res<CustomAssets>,
+    sound_assets: Res<SoundAssets>,
     sfx_music_volume: Res<SfxMusicVolume>,
 ) {
     let Ok(dino) = dino_query.single() else {
@@ -1302,7 +1302,7 @@ fn apple_collect(
 
             commands.spawn((
                 PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(vol)),
-                AudioPlayer(assets.collect_sfx.clone()),
+                AudioPlayer(sound_assets.collect_sfx.clone()),
             ));
             apple_basket.0 += 1;
             // Do an animation
@@ -1317,7 +1317,7 @@ fn clock_collect(
     mut game_timer: ResMut<GameTimer>,
     clocks: Query<(Entity, &TimeExtender)>,
     dino_query: Query<&Dino>,
-    assets: Res<CustomAssets>,
+    sound_assets: Res<SoundAssets>,
     sfx_music_volume: Res<SfxMusicVolume>,
 ) {
     let Ok(dino) = dino_query.single() else {
@@ -1329,7 +1329,7 @@ fn clock_collect(
 
             commands.spawn((
                 PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(vol)),
-                AudioPlayer(assets.collect_sfx.clone()),
+                AudioPlayer(sound_assets.collect_sfx.clone()),
             ));
             let remaining = game_timer.0.remaining().as_secs_f32();
             game_timer.0 = Timer::from_seconds(remaining + 60., TimerMode::Once);
@@ -1449,7 +1449,7 @@ fn game_over(
     mut reader: EventReader<SceneChange>,
     mut commands: Commands,
     mut pending_scene_change: ResMut<PendingSceneChange>,
-    assets: Res<CustomAssets>,
+    assets: Res<ImageAssets>,
 ) {
     for event in reader.read() {
         let data = event.0.clone();
@@ -1570,7 +1570,8 @@ pub struct WaitingMusic;
 
 fn waiting_music(
     mut commands: Commands,
-    assets: Res<CustomAssets>,
+
+    sound_assets: Res<SoundAssets>,
     music: Query<(), With<WaitingMusic>>,
 ) {
     if music.single().is_err() {
@@ -1579,7 +1580,7 @@ fn waiting_music(
             MusicVolume(0.25),
             FadeInMusic::new(0.25),
             PlaybackSettings::LOOP.with_volume(bevy::audio::Volume::Linear(0.0)),
-            AudioPlayer(assets.menu_music.clone()),
+            AudioPlayer(sound_assets.menu_music.clone()),
         ));
     }
 }
@@ -1593,7 +1594,7 @@ fn game_over_scoreboard(
     language: Res<DisplayLanguage>,
     mut total_points: ResMut<TotalPoints>,
     game_over_options: Res<Assets<GameOverLex>>,
-    assets: Res<CustomAssets>,
+    sound_assets: Res<SoundAssets>,
     sfx_music_volume: Res<SfxMusicVolume>,
 ) {
     let lex = if game_status.won() {
@@ -1601,14 +1602,14 @@ fn game_over_scoreboard(
 
         commands.spawn((
             PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(vol)),
-            AudioPlayer(assets.win.clone()),
+            AudioPlayer(sound_assets.win.clone()),
         ));
         get_lex_by_id(&game_over_options, "win")
     } else if game_status.lost() {
         let vol = if sfx_music_volume.sfx { 0.8 } else { 0.0 };
         commands.spawn((
             PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(vol)),
-            AudioPlayer(assets.lose.clone()),
+            AudioPlayer(sound_assets.lose.clone()),
         ));
         get_lex_by_id(&game_over_options, "lose")
     } else {
